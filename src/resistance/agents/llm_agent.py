@@ -71,6 +71,12 @@ SCHEMAS: dict[Action, type[BaseModel]] = {
     Action.DEBRIEF: DebriefOut,
 }
 
+# Extended thinking is reserved for the leader's team choice and the mission
+# card — the moves that decide games. Everywhere else the schema's `reasoning`
+# field is the chain-of-thought; thinking on top would pay for it twice and
+# double turn latency.
+THINKING_ACTIONS = frozenset({Action.PROPOSE, Action.RECONSIDER, Action.MISSION})
+
 
 class LLMController(Controller):
     def __init__(self, seat: int, persona: Personality, client: LLMClient):
@@ -103,6 +109,7 @@ class LLMController(Controller):
                     system=system,
                     user=build_user(view, action, error_note),
                     schema=schema,
+                    thinking=action in THINKING_ACTIONS,
                 )
             except (ValidationError, ValueError) as exc:
                 records.append({

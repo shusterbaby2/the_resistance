@@ -21,8 +21,9 @@ class FakeClient:
         self.calls = []
         self.bad_first_team = bad_first_team
 
-    def complete(self, *, system, user, schema):
-        self.calls.append({"system": system, "user": user, "schema": schema})
+    def complete(self, *, system, user, schema, thinking=False):
+        self.calls.append({"system": system, "user": user, "schema": schema,
+                           "thinking": thinking})
         beliefs = [BeliefEntry(seat=s, suspicion=0.5, reason="hmm") for s in range(5)]
         if schema is ProposeOut:
             team = [99] if self.bad_first_team and len(self.calls) == 1 else [0, 1]
@@ -73,16 +74,30 @@ def test_full_game_with_fake_llm_agents():
         assert e["agent"] not in e.get("beliefs", {})
 
 
+def test_thinking_only_on_high_stakes_actions():
+    # Discussion/votes/debrief carry chain-of-thought in the `reasoning` field;
+    # extended thinking is requested only for team choices and mission cards.
+    client = FakeClient()
+    engine = _engine_with_fake_agents(client)
+    engine.run()
+    schemas_seen = {c["schema"] for c in client.calls}
+    assert {ProposeOut, DiscussOut, VoteOut} <= schemas_seen
+    for call in client.calls:
+        expected = call["schema"] in (ProposeOut, ReconsiderOut, MissionOut)
+        assert call["thinking"] is expected, call["schema"]
+
+
 def test_parse_error_retries_then_succeeds():
     client = FakeClient()
 
-    def flaky_complete(*, system, user, schema):
+    def flaky_complete(*, system, user, schema, thinking=False):
         if len(client.calls) == 0:
             client.calls.append({"system": system, "user": user, "schema": schema})
             raise ValueError(
                 "Invalid JSON: EOF while parsing a string at line 1 column 682"
             )
-        return FakeClient.complete(client, system=system, user=user, schema=schema)
+        return FakeClient.complete(client, system=system, user=user, schema=schema,
+                                   thinking=thinking)
 
     client.complete = flaky_complete  # type: ignore[method-assign]
     engine = _engine_with_fake_agents(client)
@@ -97,7 +112,7 @@ def test_parse_error_falls_back_to_scripted_agent():
     class BrokenClient:
         model = "broken"
 
-        def complete(self, *, system, user, schema):
+        def complete(self, *, system, user, schema, thinking=False):
             raise ValueError(
                 "Invalid JSON: EOF while parsing a string at line 1 column 682"
             )

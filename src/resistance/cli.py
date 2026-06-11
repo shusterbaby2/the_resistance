@@ -576,8 +576,9 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODEL_IDS),
                        help="default Claude model for AI seats (default: %(default)s)")
         p.add_argument("--effort", default=DEFAULT_EFFORT, choices=sorted(EFFORT_LEVELS),
-                       help="default thinking depth: low = snappiest turns, "
-                            "high+ = strongest deduction (default: %(default)s)")
+                       help="thinking depth for team choices and mission cards; "
+                            "other turns skip extended thinking for speed "
+                            "(default: %(default)s)")
         p.add_argument("--offline", action="store_true",
                        help="use scripted agents (no API key needed)")
         p.add_argument("--reveal", action="store_true",

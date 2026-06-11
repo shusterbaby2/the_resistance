@@ -1,3 +1,5 @@
+import threading
+
 from conftest import ScriptableController, make_engine
 
 from resistance import rules
@@ -93,6 +95,22 @@ def test_scripted_game_is_deterministic():
     assert run(7) == run(7)
     # Different seeds should diverge (sanity check that rng is actually used).
     assert run(7) != run(8)
+
+
+def test_votes_run_concurrently():
+    # All five seats must be inside their VOTE call at the same moment, or the
+    # barrier times out and breaks. Guards the simultaneous-decision speedup.
+    barrier = threading.Barrier(rules.N_PLAYERS, timeout=10)
+
+    class BarrierVoter(ScriptableController):
+        def act(self, view, action):
+            if action == Action.VOTE:
+                barrier.wait()
+            return super().act(view, action)
+
+    engine = make_engine(lambda i: BarrierVoter(spy_plays_success=True))
+    state = engine.run()
+    assert state.winner == Role.RESISTANCE
 
 
 class AlternatingReconsiderController(Controller):

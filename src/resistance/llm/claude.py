@@ -20,7 +20,8 @@ class ClaudeClient:
         self.max_tokens = max_tokens
         self.effort = effort
 
-    def complete(self, *, system: str, user: str, schema: type[T]) -> tuple[T, dict[str, Any]]:
+    def complete(self, *, system: str, user: str, schema: type[T],
+                 thinking: bool = False) -> tuple[T, dict[str, Any]]:
         kwargs: dict[str, Any] = dict(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -33,7 +34,7 @@ class ClaudeClient:
             }],
             messages=[{"role": "user", "content": user}],
             output_format=schema,
-            **thinking_request_options(self.model, self.effort),
+            **(thinking_request_options(self.model, self.effort) if thinking else {}),
         )
         started = time.monotonic()
         response = self._client.messages.parse(**kwargs)
@@ -45,6 +46,7 @@ class ClaudeClient:
             )
         record = {
             "model": self.model,
+            "thinking": thinking,
             "duration_ms": duration_ms,
             "stop_reason": response.stop_reason,
             "usage": response.usage.model_dump(),

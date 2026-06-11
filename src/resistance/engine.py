@@ -12,10 +12,15 @@ scripted, human) are the only I/O boundary and every seat is treated identically
 
 Table talk uses a mechanical speaking-bid orchestrator: only the bid winner
 gets a DISCUSS controller call per slot.
+
+Decisions the rules make simultaneous — votes, mission cards, debriefs — run
+their controller calls concurrently (one thread per seat); event emission stays
+on the engine thread in seat order so the log is deterministic.
 """
 
 import random
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Callable
 
@@ -141,18 +146,19 @@ class GameEngine:
 
     # ------------------------------------------------------------- acting
 
-    def _act(self, seat: int, action: Action) -> AgentOutput:
+    def _emit_turn_start(self, seat: int, action: Action,
+                         round_: int | None) -> None:
         # Status beat so renderers can show who is deliberating (and silences
         # are attributable to thinking, not bugs). Mission turns omit the agent:
         # who is deciding what card must stay anonymous.
         turn_fields = {} if action == Action.MISSION else {"agent": self._id(seat)}
-        self.emit(EventType.TURN_START, round_=self.state.round_num,
+        self.emit(EventType.TURN_START, round_=round_,
                   action=action.value, **turn_fields)
-        view = build_seat_view(self.state, seat, self.transcript,
-                               self.beliefs.get(seat))
-        out = self.seats[seat].controller.act(view, action)
+
+    def _apply_output(self, seat: int, action: Action, out: AgentOutput,
+                      round_: int | None) -> None:
         for record in out.meta.get("llm_calls", []):
-            self.emit(EventType.LLM_CALL, round_=self.state.round_num,
+            self.emit(EventType.LLM_CALL, round_=round_,
                       agent=self._id(seat), action=action.value, **record)
         if out.beliefs is not None:
             self.beliefs[seat] = out.beliefs
@@ -163,8 +169,39 @@ class GameEngine:
                     self._id(b.seat): b.suspicion for b in out.beliefs.entries
                 }
             # Thought always precedes the matching speech (schema note).
-            self.emit(EventType.THOUGHT, round_=self.state.round_num, **fields)
+            self.emit(EventType.THOUGHT, round_=round_, **fields)
+
+    def _act(self, seat: int, action: Action) -> AgentOutput:
+        round_ = self.state.round_num
+        self._emit_turn_start(seat, action, round_)
+        view = build_seat_view(self.state, seat, self.transcript,
+                               self.beliefs.get(seat))
+        out = self.seats[seat].controller.act(view, action)
+        self._apply_output(seat, action, out, round_)
         return out
+
+    def _act_simultaneous(self, seats: list[int], action: Action, *,
+                          debrief: bool = False) -> dict[int, AgentOutput]:
+        """Decisions the rules make simultaneous (votes, mission cards,
+        debriefs): every controller acts concurrently on the same pre-decision
+        view. Controllers share nothing, so threads are safe; all events are
+        emitted from this thread in seat order, so the log stays deterministic."""
+        round_ = None if debrief else self.state.round_num
+        views = {}
+        for seat in seats:
+            self._emit_turn_start(seat, action, round_)
+            views[seat] = build_seat_view(self.state, seat, self.transcript,
+                                          self.beliefs.get(seat), debrief=debrief)
+        with ThreadPoolExecutor(max_workers=len(seats)) as pool:
+            futures = {
+                seat: pool.submit(self.seats[seat].controller.act,
+                                  views[seat], action)
+                for seat in seats
+            }
+            outs = {seat: futures[seat].result() for seat in seats}
+        for seat in seats:
+            self._apply_output(seat, action, outs[seat], round_)
+        return outs
 
     def _say(self, seat: int, text: str, *, bid: float | None = None) -> None:
         text = text.strip()
@@ -267,10 +304,11 @@ class GameEngine:
             turns += 1
 
     def _run_vote(self) -> bool:
-        votes: dict[int, bool] = {}
-        for seat in range(rules.N_PLAYERS):
-            out = self._act(seat, Action.VOTE)
-            votes[seat] = out.vote if out.vote is not None else True
+        outs = self._act_simultaneous(list(range(rules.N_PLAYERS)), Action.VOTE)
+        votes = {
+            seat: out.vote if out.vote is not None else True
+            for seat, out in outs.items()
+        }
         approved = sum(votes.values()) >= rules.VOTES_TO_APPROVE
         self.state.votes.append(VoteRecord(
             round_num=self.state.round_num,
@@ -292,11 +330,13 @@ class GameEngine:
 
     def _run_mission(self) -> None:
         team = list(self.state.current_team)
+        spies = [s for s in team if self.state.player(s).role == Role.SPY]
+        outs = self._act_simultaneous(spies, Action.MISSION) if spies else {}
         fails = 0
         cards = []
         for seat in team:
-            if self.state.player(seat).role == Role.SPY:
-                out = self._act(seat, Action.MISSION)
+            if seat in outs:
+                out = outs[seat]
                 success = out.mission_success if out.mission_success is not None else True
             else:
                 # Resistance has no choice; the engine plays success for them.
@@ -338,20 +378,10 @@ class GameEngine:
         self._run_debrief()
 
     def _run_debrief(self) -> None:
-        for seat in range(rules.N_PLAYERS):
-            self.emit(EventType.TURN_START, action=Action.DEBRIEF.value,
-                      agent=self._id(seat))
-            view = build_seat_view(
-                self.state, seat, self.transcript, self.beliefs.get(seat),
-                debrief=True,
-            )
-            out = self.seats[seat].controller.act(view, Action.DEBRIEF)
-            for record in out.meta.get("llm_calls", []):
-                self.emit(EventType.LLM_CALL, agent=self._id(seat),
-                          action=Action.DEBRIEF.value, **record)
-            if out.reasoning:
-                self.emit(EventType.THOUGHT, agent=self._id(seat),
-                          text=out.reasoning)
+        seats = list(range(rules.N_PLAYERS))
+        outs = self._act_simultaneous(seats, Action.DEBRIEF, debrief=True)
+        for seat in seats:
+            out = outs[seat]
             self.emit(
                 EventType.DEBRIEF,
                 agent=self._id(seat),

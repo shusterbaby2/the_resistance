@@ -56,7 +56,9 @@ Leader locked a team in for the upcoming vote.
 ### `turn_start`  *(progressive — status, not content)*
 Emitted when a seat begins deciding, so renderers can show "X is thinking…" and
 silences are attributable to model latency rather than bugs. Cleared by the next
-non-`turn_start` event.
+non-`turn_start` event. Simultaneous decisions (`vote`, `mission`, `debrief`)
+emit one `turn_start` per deciding seat back-to-back before any results — those
+seats deliberate concurrently, so a renderer may show all of them as thinking.
 - `agent`: playerId — **omitted for `action: "mission"`** so who is deliberating
   over a card stays anonymous.
 - `action`: `"propose_team" | "reconsider" | "discuss" | "vote" | "mission" |
