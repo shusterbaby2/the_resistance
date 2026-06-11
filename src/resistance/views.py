@@ -39,6 +39,10 @@ class SeatView(BaseModel):
     votes: list[VoteRecord]
     transcript: list[TranscriptEntry]
     beliefs: Beliefs | None = None  # this seat's own persisted beliefs
+    game_over: bool = False
+    winner: Role | None = None
+    win_reason: str | None = None
+    revealed_roles: dict[int, Role] = Field(default_factory=dict)
 
 
 def build_seat_view(
@@ -46,6 +50,8 @@ def build_seat_view(
     seat: int,
     transcript: list[TranscriptEntry],
     beliefs: Beliefs | None,
+    *,
+    debrief: bool = False,
 ) -> SeatView:
     me = state.player(seat)
     fellow_spies = (
@@ -70,4 +76,10 @@ def build_seat_view(
         votes=list(state.votes),
         transcript=list(transcript),
         beliefs=beliefs,
+        game_over=debrief,
+        winner=state.winner if debrief else None,
+        win_reason=state.win_reason if debrief else None,
+        revealed_roles=(
+            {p.seat: p.role for p in state.players} if debrief else {}
+        ),
     )

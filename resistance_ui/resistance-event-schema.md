@@ -59,7 +59,9 @@ silences are attributable to model latency rather than bugs. Cleared by the next
 non-`turn_start` event.
 - `agent`: playerId — **omitted for `action: "mission"`** so who is deliberating
   over a card stays anonymous.
-- `action`: `"propose_team" | "reconsider" | "discuss" | "vote" | "mission"`.
+- `action`: `"propose_team" | "reconsider" | "discuss" | "vote" | "mission" |
+  "debrief"`.
+- `round`: omitted for `action: "debrief"` (post-game, like `game_end`).
 
 ### `thought`  *(interior — never shown to other agents, hidden in Blind mode)*
 - `agent`: playerId.
@@ -95,6 +97,20 @@ Resistance votes are simultaneous, so emit one aggregate event.
 - `winner`: `"resistance" | "spies"`.
 - `score`: `{ resistance, spies }`.
 - `reason`: `"three_missions" | "five_rejections"`.
+- `roles`: `{ [playerId]: "resistance" | "spy" }` — full role reveal at the table.
+- `debrief`: bool *(progressive)* — when true, the engine will emit one `debrief`
+  per seat after this event. Live tailers should keep polling until all debriefs
+  arrive. Omit on older logs that end at `game_end`.
+
+### `debrief`  *(post-game — public table talk after roles are revealed)*
+Each seat, in order, reflects on the finished game. Omitted on `round` (like
+`game_start` / `game_end`).
+- `agent`: playerId.
+- `strategy`: string — overall approach tonight, in character.
+- `best_move`: string — the single best play they made (or would credit).
+- `mistake`: string — where they went wrong or what they'd do differently; empty
+  string if they claim none.
+- `confusion`: string — what confused them most during the game.
 
 ## Worked example (first lines of a game)
 

@@ -285,7 +285,38 @@ class GameEngine:
         self.state.win_reason = reason
         self.emit(EventType.GAME_END, winner=WINNER_LABEL[winner],
                   score=self._score(), reason=reason,
-                  roles={self._id(p.seat): p.role.value for p in self.state.players})
+                  roles={self._id(p.seat): p.role.value for p in self.state.players},
+                  debrief=True)
+
+    def run_debrief_phase(self) -> None:
+        """Post-game reflections. Requires a finished game already in state."""
+        if self.state is None or self.state.winner is None:
+            raise RuntimeError("cannot debrief before the game has a winner")
+        self._run_debrief()
+
+    def _run_debrief(self) -> None:
+        for seat in range(rules.N_PLAYERS):
+            self.emit(EventType.TURN_START, action=Action.DEBRIEF.value,
+                      agent=self._id(seat))
+            view = build_seat_view(
+                self.state, seat, self.transcript, self.beliefs.get(seat),
+                debrief=True,
+            )
+            out = self.seats[seat].controller.act(view, Action.DEBRIEF)
+            for record in out.meta.get("llm_calls", []):
+                self.emit(EventType.LLM_CALL, agent=self._id(seat),
+                          action=Action.DEBRIEF.value, **record)
+            if out.reasoning:
+                self.emit(EventType.THOUGHT, agent=self._id(seat),
+                          text=out.reasoning)
+            self.emit(
+                EventType.DEBRIEF,
+                agent=self._id(seat),
+                strategy=out.strategy,
+                best_move=out.best_move,
+                mistake=out.mistake,
+                confusion=out.confusion,
+            )
 
     # ------------------------------------------------------------- run
 
@@ -318,4 +349,5 @@ class GameEngine:
                 self._finish(Role.SPY, "three_missions")
             else:
                 self.state.round_num += 1
+        self._run_debrief()
         return self.state

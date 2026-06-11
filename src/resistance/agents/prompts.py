@@ -120,6 +120,15 @@ ACTION_ASKS = {
         "when Resistance is one win from victory wins the game. Weigh cover "
         "against that."
     ),
+    Action.DEBRIEF: (
+        "The game is over and every role is now revealed. In character, give your "
+        "post-game debrief:\n"
+        "- strategy: your overall approach tonight (1-2 sentences)\n"
+        "- best_move: the single best play you made, or would credit to an ally\n"
+        "- mistake: where you went wrong or what you'd do differently (empty "
+        "string if you honestly have none)\n"
+        "- confusion: what confused you most during the game"
+    ),
 }
 
 
@@ -150,6 +159,37 @@ def _score_pressure(view: SeatView) -> str | None:
 
 
 def build_user(view: SeatView, action: Action, error_note: str | None = None) -> str:
+    if action == Action.DEBRIEF:
+        names = {p.seat: p.name for p in view.players}
+        roles = {
+            f"seat {seat} ({names[seat]})": role.value
+            for seat, role in sorted(view.revealed_roles.items())
+        }
+        state = {
+            "winner": view.winner.value if view.winner else None,
+            "win_reason": view.win_reason,
+            "final_score": _mission_score(view),
+            "revealed_roles": roles,
+            "your_role": view.role.value,
+            "mission_record": [m.model_dump() for m in view.missions],
+            "vote_record": [v.model_dump() for v in view.votes],
+        }
+        transcript = "\n".join(
+            f"{t.name} (seat {t.seat}): {t.text}" for t in view.transcript
+        ) or "(no table talk)"
+        parts = [
+            "THE GAME IS OVER. Roles are revealed — reflect honestly in character.",
+            "FINAL STATE:",
+            json.dumps(state, indent=1),
+            "TABLE TALK (full transcript):",
+            transcript,
+            "YOUR TASK:",
+            ACTION_ASKS[action],
+        ]
+        if error_note:
+            parts += ["CORRECTION NEEDED:", error_note]
+        return "\n\n".join(parts)
+
     state = {
         "round": view.round_num,
         "team_size_this_round": view.team_size,

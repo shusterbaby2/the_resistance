@@ -31,6 +31,13 @@ class ScriptableController(Controller):
             if view.role == Role.SPY:
                 return AgentOutput(mission_success=self.spy_plays_success)
             return AgentOutput(mission_success=True)
+        if action == Action.DEBRIEF:
+            return AgentOutput(
+                strategy="test strategy",
+                best_move="test move",
+                mistake="test mistake",
+                confusion="test confusion",
+            )
         raise ValueError(action)
 
 

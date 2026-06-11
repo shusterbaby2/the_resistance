@@ -2,8 +2,8 @@
 
 from resistance.agents.base import Action
 from resistance.agents.llm_agent import (
-    DiscussOut, LLMController, MissionOut, ProposeOut, ReconsiderOut, VoteOut,
-    BeliefEntry,
+    DebriefOut, DiscussOut, LLMController, MissionOut, ProposeOut, ReconsiderOut,
+    VoteOut, BeliefEntry,
 )
 from resistance.engine import GameEngine, SeatConfig
 from resistance.events import EventType
@@ -35,6 +35,14 @@ class FakeClient:
             out = ReconsiderOut(reasoning="r", speech="s", submit=True, beliefs=beliefs)
         elif schema is MissionOut:
             out = MissionOut(reasoning="r", play_success=True)
+        elif schema is DebriefOut:
+            out = DebriefOut(
+                reasoning="r",
+                strategy="played tight",
+                best_move="held a reject",
+                mistake="",
+                confusion="the vote math",
+            )
         else:
             raise AssertionError(schema)
         return out, {"model": self.model, "output": out.model_dump()}

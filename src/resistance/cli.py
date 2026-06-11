@@ -8,9 +8,11 @@ Subcommands:
   play    one human seat + four AI agents (blind view: your role only)
   watch   all-AI game; --reveal for the omniscient view
   replay  re-render a recorded game from its JSONL log
+  debrief run post-game reflections from a finished log (no re-play)
 """
 
 import argparse
+import json
 import os
 import random
 import sys
@@ -37,6 +39,7 @@ from .llm.models import (
     resolve_model,
 )
 from .personality import PRESETS, Personality
+from .hydrate import HydrateError, events_through_game_end, run_debrief_from_log
 from .replay import replay as run_replay
 from .state import Role
 from .views import SeatView
@@ -123,6 +126,7 @@ class ConsoleRenderer:
             "discuss": "is thinking",
             "vote": "is deciding their vote",
             "mission": "is choosing cards",
+            "debrief": "is reflecting on the game",
         }.get(e["action"], f"is acting ({e['action']})")
         print(self._dim(f"      ⋯ {who} {label}…"))
 
@@ -184,6 +188,19 @@ class ConsoleRenderer:
         print(f"\n=== {e['winner'].upper()} WIN — {e['reason']} ===")
         print(f"Roles: {roles}\n")
 
+    def _on_debrief(self, e: Event) -> None:
+        who = self._c(e["agent"], self._name(e["agent"]))
+        print(f"  {who} — post-game debrief:")
+        for label, key in (
+            ("Strategy", "strategy"),
+            ("Best move", "best_move"),
+            ("Mistake", "mistake"),
+            ("Most confused by", "confusion"),
+        ):
+            if e.get(key):
+                print(f"    {label}: {e[key]}")
+        print()
+
     def _on_engine_note(self, e: Event) -> None:
         if self.reveal:
             print(self._dim(f"      [engine] {e['note']} for {self._name(e['agent'])}"))
@@ -209,7 +226,22 @@ class HumanController(Controller):
                 ok = self._yes_no("You're a spy on this mission — play SUCCESS? [y/n]: ")
                 return AgentOutput(mission_success=ok)
             return AgentOutput(mission_success=True)
+        if action == Action.DEBRIEF:
+            return self._debrief(view)
         raise ValueError(action)
+
+    def _debrief(self, view: SeatView) -> AgentOutput:
+        print("\n--- Post-game debrief (roles are revealed) ---")
+        strategy = input("Your overall strategy tonight: ").strip()
+        best_move = input("Your best move of the night: ").strip()
+        mistake = input("Where you messed up (enter to skip): ").strip()
+        confusion = input("What confused you most: ").strip()
+        return AgentOutput(
+            strategy=strategy,
+            best_move=best_move,
+            mistake=mistake,
+            confusion=confusion,
+        )
 
     def _suggest_team(self, view: SeatView, *, opening: bool) -> AgentOutput:
         roster = ", ".join(f"{p.seat}={p.name}" for p in view.players)
@@ -464,6 +496,77 @@ def cmd_replay(args) -> None:
     run_replay(args.logfile, renderer)
 
 
+def _seats_from_log(events: list, args) -> list[SeatConfig]:
+    start = events[0]
+    players = sorted(start["players"], key=lambda p: p["seat"])
+    preset_idxs = [i % len(PRESETS) for i in range(rules.N_PLAYERS)]
+    all_seats = list(range(rules.N_PLAYERS))
+    controllers = _make_llm_controllers(
+        all_seats,
+        {s: preset_idxs[s] for s in all_seats},
+        {s: resolve_model(args.model) for s in all_seats},
+        {s: resolve_effort(args.effort) for s in all_seats},
+        args,
+    )
+    seats: list[SeatConfig | None] = [None] * rules.N_PLAYERS
+    for p in players:
+        seat = p["seat"]
+        if p.get("isHuman"):
+            seats[seat] = SeatConfig(
+                name=p["name"], controller=HumanController(), is_human=True,
+            )
+        else:
+            seats[seat] = SeatConfig(name=p["name"], controller=controllers[seat])
+    return seats  # type: ignore[return-value]
+
+
+def cmd_debrief(args) -> None:
+    from .eventlog import load_events
+
+    path = Path(args.logfile)
+    try:
+        events = load_events(path)
+        core, _ = events_through_game_end(events)
+    except HydrateError as exc:
+        sys.exit(str(exc))
+
+    existing = [e for e in events if e["type"] == "debrief"]
+    if existing and not args.force:
+        sys.exit(
+            f"log already has {len(existing)} debrief event(s). "
+            "Use --force to run again and append, or replay to view them."
+        )
+
+    seats = _seats_from_log(core, args)
+    renderer = ConsoleRenderer(
+        human=any(s.is_human for s in seats),
+        reveal=args.reveal,
+    )
+    listeners = [renderer]
+    if args.append:
+        out = path.open("a", encoding="utf-8")
+
+        def append_listener(event: Event) -> None:
+            out.write(json.dumps(event, ensure_ascii=False) + "\n")
+            out.flush()
+
+        listeners.append(append_listener)
+
+    try:
+        new_events = run_debrief_from_log(path, seats, listeners=listeners)
+    except HydrateError as exc:
+        sys.exit(str(exc))
+    finally:
+        if args.append:
+            out.close()
+
+    print(f"Emitted {len(new_events)} debrief event(s).")
+    if args.append:
+        print(f"Appended to: {path}")
+    else:
+        print("Re-run with --append to write them into the log file.")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="resistance")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -495,6 +598,25 @@ def main(argv: list[str] | None = None) -> None:
     p_replay.add_argument("logfile")
     p_replay.add_argument("--reveal", action="store_true")
     p_replay.set_defaults(func=cmd_replay)
+
+    p_debrief = sub.add_parser(
+        "debrief",
+        help="run post-game reflections from a finished log (no re-play)",
+    )
+    p_debrief.add_argument("logfile")
+    p_debrief.add_argument("--seed", type=int, default=0,
+                           help="RNG seed for scripted agents (default: 0)")
+    p_debrief.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODEL_IDS))
+    p_debrief.add_argument("--effort", default=DEFAULT_EFFORT, choices=sorted(EFFORT_LEVELS))
+    p_debrief.add_argument("--offline", action="store_true",
+                           help="scripted debriefs (no API key)")
+    p_debrief.add_argument("--reveal", action="store_true",
+                           help="show private reasoning during debrief")
+    p_debrief.add_argument("--append", action="store_true",
+                           help="append new debrief events to the log file")
+    p_debrief.add_argument("--force", action="store_true",
+                           help="run even if the log already has debrief events")
+    p_debrief.set_defaults(func=cmd_debrief)
 
     args = parser.parse_args(argv)
     args.func(args)

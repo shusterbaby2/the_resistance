@@ -21,4 +21,4 @@ def test_log_round_trips_and_replays(tmp_path):
     replay(path, rendered.append)
     assert rendered == live
     assert rendered[0]["type"] == "game_start"
-    assert rendered[-1]["type"] == "game_end"
+    assert rendered[-1]["type"] == "debrief"

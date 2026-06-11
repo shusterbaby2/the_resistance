@@ -32,10 +32,10 @@ def test_five_rejections_hand_spies_the_game():
     vote_events = [e for e in events if e["type"] == EventType.TEAM_VOTE]
     assert len(vote_events) == 5
     assert [e["attempt"] for e in vote_events] == [1, 2, 3, 4, 5]
-    end = events[-1]
-    assert end["type"] == EventType.GAME_END
+    end = next(e for e in events if e["type"] == EventType.GAME_END)
     assert end["winner"] == "spies"
     assert end["reason"] == "five_rejections"
+    assert sum(1 for e in events if e["type"] == EventType.DEBRIEF) == 5
 
 
 def test_leader_rotates_after_every_proposal():
@@ -122,6 +122,8 @@ class AlternatingReconsiderController(Controller):
             return AgentOutput(vote=True, reasoning="test")
         if action == Action.MISSION:
             return AgentOutput(mission_success=True, reasoning="test")
+        if action == Action.DEBRIEF:
+            return AgentOutput(strategy="s", best_move="b", confusion="c")
         raise ValueError(action)
 
 
@@ -158,6 +160,8 @@ def test_third_suggestion_auto_submits_without_reconsider():
                 return AgentOutput(vote=True, reasoning="test")
             if action == Action.MISSION:
                 return AgentOutput(mission_success=True, reasoning="test")
+            if action == Action.DEBRIEF:
+                return AgentOutput(strategy="s", best_move="b", confusion="c")
             raise ValueError(action)
 
     events = []

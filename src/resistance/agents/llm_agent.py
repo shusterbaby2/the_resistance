@@ -54,12 +54,21 @@ class MissionOut(BaseModel):
     play_success: bool
 
 
+class DebriefOut(BaseModel):
+    reasoning: str
+    strategy: str
+    best_move: str
+    mistake: str = ""
+    confusion: str
+
+
 SCHEMAS: dict[Action, type[BaseModel]] = {
     Action.PROPOSE: ProposeOut,
     Action.RECONSIDER: ReconsiderOut,
     Action.DISCUSS: DiscussOut,
     Action.VOTE: VoteOut,
     Action.MISSION: MissionOut,
+    Action.DEBRIEF: DebriefOut,
 }
 
 
@@ -170,4 +179,12 @@ class LLMController(Controller):
         if action == Action.MISSION:
             return AgentOutput(reasoning=parsed.reasoning,
                                mission_success=parsed.play_success)
+        if action == Action.DEBRIEF:
+            return AgentOutput(
+                reasoning=parsed.reasoning,
+                strategy=parsed.strategy,
+                best_move=parsed.best_move,
+                mistake=parsed.mistake,
+                confusion=parsed.confusion,
+            )
         raise ValueError(f"unknown action {action}")

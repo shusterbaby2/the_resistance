@@ -24,6 +24,7 @@ class Action(str, Enum):
     DISCUSS = "discuss"
     VOTE = "vote"
     MISSION = "mission"
+    DEBRIEF = "debrief"  # post-game reflection after roles are revealed
 
 
 class AgentOutput(BaseModel):
@@ -34,6 +35,10 @@ class AgentOutput(BaseModel):
     submit: bool | None = None  # for RECONSIDER: True = put current team to the vote
     vote: bool | None = None  # for VOTE
     mission_success: bool | None = None  # for MISSION (spies only)
+    strategy: str = ""  # for DEBRIEF
+    best_move: str = ""  # for DEBRIEF
+    mistake: str = ""  # for DEBRIEF
+    confusion: str = ""  # for DEBRIEF
     meta: dict[str, Any] = Field(default_factory=dict)  # e.g. raw llm_call records
 
 

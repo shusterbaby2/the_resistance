@@ -27,6 +27,7 @@ class EventType:
     MISSION = "mission"
     ROUND_END = "round_end"
     GAME_END = "game_end"
+    DEBRIEF = "debrief"  # post-game: each seat's public reflection
     # engine extras (ignored by schema-v1 renderers)
     LLM_CALL = "llm_call"  # raw model record per agent turn
     ENGINE_NOTE = "engine_note"  # e.g. invalid action corrected

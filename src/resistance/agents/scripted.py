@@ -255,4 +255,46 @@ class RandomController(Controller):
                 reasoning="Resistance plays success. Always.",
                 mission_success=True,
             )
+        if action == Action.DEBRIEF:
+            return self._debrief_copy(view)
         raise ValueError(f"unknown action {action}")
+
+    def _debrief_copy(self, view: SeatView) -> AgentOutput:
+        n = self.persona.name
+        won = (
+            (view.role == Role.SPY and view.winner == Role.SPY)
+            or (view.role == Role.RESISTANCE and view.winner == Role.RESISTANCE)
+        )
+        outcome = "we got there" if won else "they got us"
+        if n == "Marlow":
+            strategy = "Push clean teams early and make liars defend the math."
+            best = "Calling out a lazy approve when the score was tight."
+            mistake = "" if won else "Trusted one speech too many on mission two."
+            confusion = "Who was performing innocence versus actually clean."
+        elif n == "Vex":
+            strategy = "Track votes against outcomes and narrow the suspect pool."
+            best = "Rejecting a team that looked fine on paper."
+            mistake = "Let a float go to vote without enough pushback."
+            confusion = "A mission fail with no obvious spy on the card."
+        elif n == "Juno":
+            strategy = "Stay readable, ask questions, and move beliefs slowly."
+            best = "Staying quiet when the table was spiraling."
+            mistake = "Talked myself into a bad approve."
+            confusion = "Two players sounding equally sure about opposite reads."
+        elif n == "Castor":
+            strategy = "Keep the table moving; rejections cost everyone."
+            best = "Locking a team once the room had had its say."
+            mistake = "Floated one suggestion too many."
+            confusion = "When consensus formed before anyone had a real reason."
+        else:  # Sable
+            strategy = "Poke at cozy picks and watch who over-defends."
+            best = "Naming the tension instead of faking agreement."
+            mistake = "Pushed so hard the table united against me."
+            confusion = "A spy sounding more resistance than the resistance."
+        return AgentOutput(
+            reasoning=f"Game over — {outcome}. Time to be honest at the table.",
+            strategy=strategy,
+            best_move=best,
+            mistake=mistake,
+            confusion=confusion,
+        )

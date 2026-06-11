@@ -8,7 +8,8 @@ failing here.
 from conftest import ScriptableController, make_engine
 
 V1_TYPES = {"game_start", "round_start", "turn_start", "suggestion", "proposal",
-            "thought", "speech", "team_vote", "mission", "round_end", "game_end"}
+            "thought", "speech", "team_vote", "mission", "round_end", "game_end",
+            "debrief"}
 ENGINE_EXTRAS = {"llm_call", "engine_note"}
 
 REQUIRED_FIELDS = {
@@ -23,6 +24,7 @@ REQUIRED_FIELDS = {
     "mission": {"round", "team", "fails", "outcome"},
     "round_end": {"round", "outcome", "score"},
     "game_end": {"winner", "score", "reason"},
+    "debrief": {"agent", "strategy", "best_move", "mistake", "confusion"},
 }
 
 
@@ -41,7 +43,10 @@ def test_event_envelope_and_required_fields():
     for i, e in enumerate(events):
         assert e["t"] == i  # monotonic, 0-based
         assert e["type"] in V1_TYPES | ENGINE_EXTRAS
-        for field in REQUIRED_FIELDS.get(e["type"], set()):
+        required = REQUIRED_FIELDS.get(e["type"], set())
+        if e["type"] == "turn_start" and e.get("action") == "debrief":
+            required = required - {"round"}
+        for field in required:
             assert field in e, f"{e['type']} missing {field}"
 
 
@@ -100,6 +105,15 @@ def test_thought_precedes_matching_speech():
                     and p.get("agent") == e["agent"]]
             if prev and prev[-1]["type"] == "thought":
                 assert prev[-1]["t"] < e["t"]
+
+
+def test_debrief_follows_game_end():
+    events = _events()
+    end_idx = next(i for i, e in enumerate(events) if e["type"] == "game_end")
+    debriefs = [e for e in events[end_idx + 1:] if e["type"] == "debrief"]
+    assert events[end_idx].get("debrief") is True
+    assert len(debriefs) == 5
+    assert {e["agent"] for e in debriefs} == {p["id"] for p in events[0]["players"]}
 
 
 def test_fold_replayer_style():
