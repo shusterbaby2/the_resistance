@@ -20,6 +20,8 @@ class ScriptableController(Controller):
             else:
                 team = sorted(p.seat for p in view.players)[: view.team_size]
             return AgentOutput(team=team, speech="team up", reasoning="test")
+        if action == Action.RECONSIDER:
+            return AgentOutput(submit=True, reasoning="test")
         if action == Action.DISCUSS:
             return AgentOutput(reasoning="test")
         if action == Action.VOTE:

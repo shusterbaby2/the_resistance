@@ -40,7 +40,15 @@ Sets up the board. Emitted once.
 - `missionSize`: int.
 - `attempt`: int — 1..5. The 5th rejected proposal in a round ends the game for the spies.
 
+### `suggestion`
+Leader floated a team for table talk; not yet submitted to a vote.
+- `leader`: playerId.
+- `attempt`: int — which vote attempt within the round (1..5).
+- `suggestion`: int — which float within this attempt (1..3).
+- `team`: `[playerId]`.
+
 ### `proposal`
+Leader locked a team in for the upcoming vote.
 - `leader`: playerId.
 - `attempt`: int.
 - `team`: `[playerId]`.
@@ -51,7 +59,7 @@ silences are attributable to model latency rather than bugs. Cleared by the next
 non-`turn_start` event.
 - `agent`: playerId — **omitted for `action: "mission"`** so who is deliberating
   over a card stays anonymous.
-- `action`: `"propose_team" | "discuss" | "vote" | "mission"`.
+- `action`: `"propose_team" | "reconsider" | "discuss" | "vote" | "mission"`.
 
 ### `thought`  *(interior — never shown to other agents, hidden in Blind mode)*
 - `agent`: playerId.
@@ -94,12 +102,14 @@ Resistance votes are simultaneous, so emit one aggregate event.
 {"t":0,"type":"game_start","players":[{"id":"marlow","name":"Marlow","seat":0},{"id":"vex","name":"Vex","seat":1},{"id":"juno","name":"Juno","seat":2},{"id":"castor","name":"Castor","seat":3},{"id":"sable","name":"Sable","seat":4}],"roles":{"marlow":"resistance","vex":"spy","juno":"resistance","castor":"spy","sable":"resistance"},"missionPlan":[{"round":1,"size":2,"failsToFail":1},{"round":2,"size":3,"failsToFail":1},{"round":3,"size":2,"failsToFail":1},{"round":4,"size":3,"failsToFail":1},{"round":5,"size":3,"failsToFail":1}],"missionsToWin":3}
 {"t":1,"type":"round_start","round":2,"leader":"juno","missionSize":3,"attempt":1}
 {"t":2,"type":"thought","round":2,"agent":"juno","text":"Mission 1 was clean, so Marlow and Vex are proven. I'm clean. Run the two greens plus myself; bench Castor and Sable so I can read them.","beliefs":{"marlow":0.1,"vex":0.15,"castor":0.45,"sable":0.5}}
-{"t":3,"type":"proposal","round":2,"leader":"juno","attempt":1,"team":["marlow","vex","juno"]}
-{"t":4,"type":"thought","round":2,"agent":"vex","text":"I'm the only spy on this team. The table has framed Juno as the lone fresh face. I'll approve warmly, then fail it.","beliefs":{"marlow":0.1,"juno":0.75,"castor":0.2,"sable":0.3},"flags":["intent_mismatch"]}
-{"t":5,"type":"speech","round":2,"agent":"vex","text":"The math's already drawn — this rides on Juno. I'm comfortable approving and letting the record speak.","bid":0.8,"flags":["bluff"]}
-{"t":6,"type":"team_vote","round":2,"attempt":1,"votes":[{"player":"marlow","vote":"approve"},{"player":"vex","vote":"approve"},{"player":"juno","vote":"approve"},{"player":"castor","vote":"approve"},{"player":"sable","vote":"approve"}],"outcome":"approved"}
-{"t":7,"type":"mission","round":2,"team":["marlow","vex","juno"],"fails":1,"outcome":"fail","cards":[{"player":"marlow","card":"success"},{"player":"vex","card":"fail"},{"player":"juno","card":"success"}]}
-{"t":8,"type":"round_end","round":2,"outcome":"fail","score":{"resistance":1,"spies":1}}
+{"t":3,"type":"suggestion","round":2,"leader":"juno","attempt":1,"suggestion":1,"team":["marlow","vex","juno"]}
+{"t":4,"type":"speech","round":2,"agent":"juno","text":"Round one came back green — Marlow and Vex earned spots. I'll add myself."}
+{"t":5,"type":"proposal","round":2,"leader":"juno","attempt":1,"team":["marlow","vex","juno"]}
+{"t":6,"type":"thought","round":2,"agent":"vex","text":"I'm the only spy on this team. The table has framed Juno as the lone fresh face. I'll approve warmly, then fail it.","beliefs":{"marlow":0.1,"juno":0.75,"castor":0.2,"sable":0.3},"flags":["intent_mismatch"]}
+{"t":7,"type":"speech","round":2,"agent":"vex","text":"The math's already drawn — this rides on Juno. I'm comfortable approving and letting the record speak.","bid":0.8,"flags":["bluff"]}
+{"t":8,"type":"team_vote","round":2,"attempt":1,"votes":[{"player":"marlow","vote":"approve"},{"player":"vex","vote":"approve"},{"player":"juno","vote":"approve"},{"player":"castor","vote":"approve"},{"player":"sable","vote":"approve"}],"outcome":"approved"}
+{"t":9,"type":"mission","round":2,"team":["marlow","vex","juno"],"fails":1,"outcome":"fail","cards":[{"player":"marlow","card":"success"},{"player":"vex","card":"fail"},{"player":"juno","card":"success"}]}
+{"t":10,"type":"round_end","round":2,"outcome":"fail","score":{"resistance":1,"spies":1}}
 ```
 
 ## How a renderer consumes it (folding to state)
@@ -115,7 +125,7 @@ for event in events[0 .. playhead]:
 render(state)             # paint header + players + conversation + suspicion matrix
 ```
 
-The conversation panel is just the ordered `thought`/`speech`/`proposal`/`vote`/`mission` rows from the fold. The suspicion matrix is `beliefs[accuser][target]` for the latest beliefs seen per agent. The Blind toggle hides every `thought` row and every `flags` badge; the Roles toggle hides the role map. Nothing else changes between the two views — which is the entire point.
+The conversation panel is just the ordered `thought`/`speech`/`suggestion`/`proposal`/`vote`/`mission` rows from the fold. The suspicion matrix is `beliefs[accuser][target]` for the latest beliefs seen per agent. The Blind toggle hides every `thought` row and every `flags` badge; the Roles toggle hides the role map. Nothing else changes between the two views — which is the entire point.
 
 ## Engine extras (not part of v1; renderers must skip unknown types)
 

@@ -52,14 +52,15 @@ Build a desktop-based, AI-driven digital version of **The Resistance**, designed
 
 ### Turns & Interactions
 
-- **Table Talk:** All players can interrupt each other to speak, but system should balance so that AI personalities (e.g., talkative vs. quiet) influence how much they interject. Need to prevent constant overlap/interruptions—possibly by enforcing short pauses or a queue system.
+- **Team suggestion loop:** When it is a leader's turn, they **suggest** a mission team (not a final proposal). Everyone discusses the suggestion. The leader then either **submits** that team to a vote or **floats an alternate** team for more discussion. Up to **3 suggestions per vote attempt**; after the third suggestion, the team auto-submits to a vote. Suggestion counter resets after each vote (approved or rejected). Five rejected votes in a round still hands the game to the spies.
+- **Table Talk:** All players can interrupt each other to speak, but system should balance so that AI personalities (e.g., talkative vs. quiet) influence how much they interject. Need to prevent constant overlap/interruptions—possibly by enforcing short pauses or a queue system. Players are never required to speak on any round.
 - **AI Speech:** Free-form; not template-based. AI can ask questions of human or other AI agents and must respond to questions.
 - **Memory:** AI "remembers" conversation, but the player does not see a transcript/log. (Audio recording for review is supported.)
 - **Trust System:** Each AI maintains internal "trust" levels for every player. Trust/distrust can be stated aloud, with more or less frequency based on personality.
 
 ### Voting
 
-- **Team Selection Voting:** Public, shown in UI. (Who approves/rejects a mission team.)
+- **Team Selection Voting:** Public, shown in UI. (Who approves/rejects a leader-submitted mission team.)
 - **Mission Voting:** Secret, shown in UI. (Success/Fail outcome per classic rules.)
 - **UI:** Simple, clickable interface for voting and confirming mission results.
 

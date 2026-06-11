@@ -7,6 +7,7 @@ def test_five_player_constants():
     assert rules.TEAM_SIZES == (2, 3, 2, 3, 3)
     assert rules.VOTES_TO_APPROVE == 3
     assert rules.MAX_PROPOSALS_PER_ROUND == 5
+    assert rules.MAX_SUGGESTIONS == 3
 
 
 def test_team_size_by_round():

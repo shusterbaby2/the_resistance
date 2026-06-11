@@ -1,7 +1,9 @@
 """LLM agent wiring tests with a fake client — no API calls."""
 
+from resistance.agents.base import Action
 from resistance.agents.llm_agent import (
-    DiscussOut, LLMController, MissionOut, ProposeOut, VoteOut, BeliefEntry,
+    DiscussOut, LLMController, MissionOut, ProposeOut, ReconsiderOut, VoteOut,
+    BeliefEntry,
 )
 from resistance.engine import GameEngine, SeatConfig
 from resistance.events import EventType
@@ -29,6 +31,8 @@ class FakeClient:
             out = DiscussOut(reasoning="r", speech="I trust nobody.", beliefs=beliefs)
         elif schema is VoteOut:
             out = VoteOut(reasoning="r", approve=True, beliefs=beliefs)
+        elif schema is ReconsiderOut:
+            out = ReconsiderOut(reasoning="r", speech="s", submit=True, beliefs=beliefs)
         elif schema is MissionOut:
             out = MissionOut(reasoning="r", play_success=True)
         else:
@@ -65,7 +69,8 @@ def test_invalid_team_triggers_retry_with_correction():
     client = FakeClient(bad_first_team=True)
     engine = _engine_with_fake_agents(client)
     engine._assign_roles()
-    team = engine._propose()
+    out = engine._act(0, Action.PROPOSE)
+    team = engine._validated_team(0, out.team)
     assert sorted(team) == [0, 1]
     propose_calls = [c for c in client.calls if c["schema"] is ProposeOut]
     assert len(propose_calls) == 2

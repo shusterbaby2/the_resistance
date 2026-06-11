@@ -106,7 +106,8 @@ class ConsoleRenderer:
             return  # the human sees their own prompt, not a status line
         who = self._name(agent) if agent else "the mission team"
         label = {
-            "propose_team": "is picking a team",
+            "propose_team": "is suggesting a team",
+            "reconsider": "is deciding whether to submit",
             "discuss": "is thinking",
             "vote": "is deciding their vote",
             "mission": "is choosing cards",
@@ -121,9 +122,15 @@ class ConsoleRenderer:
             print(self._dim(f"      [llm] {self._name(e['agent'])} "
                             f"{e['action']}: {ms / 1000:.1f}s"))
 
+    def _on_suggestion(self, e: Event) -> None:
+        team = ", ".join(self._c(p, self._name(p)) for p in e["team"])
+        print(f"* {self._name(e['leader'])} suggests "
+              f"(suggestion {e['suggestion']}/{rules.MAX_SUGGESTIONS}, "
+              f"vote attempt {e['attempt']}/5): {team}")
+
     def _on_proposal(self, e: Event) -> None:
         team = ", ".join(self._c(p, self._name(p)) for p in e["team"])
-        print(f"* {self._name(e['leader'])} proposes "
+        print(f"* {self._name(e['leader'])} submits for vote "
               f"(attempt {e['attempt']}/5): {team}")
 
     def _on_thought(self, e: Event) -> None:
@@ -177,7 +184,9 @@ class HumanController(Controller):
 
     def act(self, view: SeatView, action: Action) -> AgentOutput:
         if action == Action.PROPOSE:
-            return self._propose(view)
+            return self._suggest_team(view, opening=True)
+        if action == Action.RECONSIDER:
+            return self._reconsider(view)
         if action == Action.DISCUSS:
             text = input("Say something (enter to stay quiet): ").strip()
             return AgentOutput(speech=text)
@@ -190,9 +199,30 @@ class HumanController(Controller):
             return AgentOutput(mission_success=True)
         raise ValueError(action)
 
-    def _propose(self, view: SeatView) -> AgentOutput:
+    def _suggest_team(self, view: SeatView, *, opening: bool) -> AgentOutput:
         roster = ", ".join(f"{p.seat}={p.name}" for p in view.players)
-        print(f"You lead. Pick {view.team_size} seats from: {roster}")
+        if opening:
+            print(f"You lead. Suggest {view.team_size} seats from: {roster}")
+        team = self._read_team(view)
+        speech = input("Say something about this suggestion (enter to skip): ").strip()
+        return AgentOutput(team=team, speech=speech)
+
+    def _reconsider(self, view: SeatView) -> AgentOutput:
+        current = ", ".join(str(s) for s in (view.current_team or []))
+        print(
+            f"Current suggestion: {current} "
+            f"(suggestion {view.suggestion_num}/{rules.MAX_SUGGESTIONS})"
+        )
+        if self._yes_no("Submit this team for a vote? [y/n]: "):
+            speech = input("Say something (enter to skip): ").strip()
+            return AgentOutput(submit=True, speech=speech)
+        roster = ", ".join(f"{p.seat}={p.name}" for p in view.players)
+        print(f"Suggest an alternate team of {view.team_size} from: {roster}")
+        team = self._read_team(view)
+        speech = input("Say something about the new suggestion (enter to skip): ").strip()
+        return AgentOutput(submit=False, team=team, speech=speech)
+
+    def _read_team(self, view: SeatView) -> list[int]:
         while True:
             raw = input(f"Team ({view.team_size} seat numbers, comma-separated): ")
             try:
@@ -200,10 +230,8 @@ class HumanController(Controller):
             except ValueError:
                 team = []
             if len(team) == view.team_size and all(0 <= s < rules.N_PLAYERS for s in team):
-                break
+                return team
             print("Invalid team, try again.")
-        speech = input("Announce it (enter to skip): ").strip()
-        return AgentOutput(team=team, speech=speech)
 
     @staticmethod
     def _yes_no(prompt: str) -> bool:
@@ -230,7 +258,10 @@ def _load_dotenv() -> None:
 
 def _make_llm_controllers(seats: list[int], args) -> dict[int, Controller]:
     if args.offline:
-        return {s: RandomController(s, args.seed) for s in seats}
+        return {
+            s: RandomController(s, args.seed, PRESETS[s % len(PRESETS)])
+            for s in seats
+        }
     _load_dotenv()
     if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("ANTHROPIC_AUTH_TOKEN"):
         sys.exit("No ANTHROPIC_API_KEY found. Copy .env.example to .env, "
@@ -280,8 +311,7 @@ def _run_game(seat_configs: list[SeatConfig], args, human: bool) -> None:
 def cmd_play(args) -> None:
     ai_seats = list(range(1, rules.N_PLAYERS))
     controllers = _make_llm_controllers(ai_seats, args)
-    ai_names = ([PRESETS[i - 1].name for i in ai_seats] if not args.offline
-                else [f"Bot{i}" for i in ai_seats])
+    ai_names = [PRESETS[i - 1].name for i in ai_seats]
     seats = [SeatConfig(name=args.name, controller=HumanController(), is_human=True)]
     seats += [SeatConfig(name=n, controller=controllers[s])
               for s, n in zip(ai_seats, ai_names)]
@@ -291,8 +321,7 @@ def cmd_play(args) -> None:
 def cmd_watch(args) -> None:
     all_seats = list(range(rules.N_PLAYERS))
     controllers = _make_llm_controllers(all_seats, args)
-    names = ([p.name for p in PRESETS[: rules.N_PLAYERS]] if not args.offline
-             else [f"Bot{i}" for i in all_seats])
+    names = [p.name for p in PRESETS[: rules.N_PLAYERS]]
     seats = [SeatConfig(name=n, controller=controllers[s])
              for s, n in zip(all_seats, names)]
     _run_game(seats, args, human=False)

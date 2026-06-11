@@ -7,6 +7,7 @@ transcript, the current ask — goes in the user message.
 
 import json
 
+from .. import rules
 from ..state import Role
 from ..personality import Personality
 from ..views import SeatView
@@ -15,9 +16,12 @@ from .base import Action
 RULES_SUMMARY = """\
 THE RESISTANCE — 5 players: 3 Resistance, 2 Spies. Spies know each other; \
 Resistance knows nothing.
-Each round the leader proposes a mission team (sizes by round: 2, 3, 2, 3, 3), \
-everyone discusses, then everyone votes publicly. Majority (3+) approves. If a \
-round sees 5 consecutive rejected proposals, the Spies win immediately.
+Each round the leader suggests a mission team (sizes by round: 2, 3, 2, 3, 3), \
+everyone discusses, then the leader either submits that team to a vote or \
+floats an alternate (up to 3 suggestions per vote attempt; the third \
+auto-submits). Everyone votes publicly on the submitted team. Majority (3+) \
+approves. If a round sees 5 consecutive rejected proposals, the Spies win \
+immediately.
 On an approved mission, each team member secretly plays SUCCESS or FAIL. \
 Resistance must play SUCCESS; Spies may play either. One FAIL card fails the \
 mission. Only the number of fails is revealed, never who played them.
@@ -81,14 +85,21 @@ def build_system(seat: int, persona: Personality, view_role: Role,
 
 ACTION_ASKS = {
     Action.PROPOSE: (
-        "You are the leader. Choose a mission team of exactly {team_size} seats "
-        "(seat numbers, from the roster; you may include yourself) and announce "
-        "it with a short justification in \"speech\"."
+        "You are the leader. Suggest an opening mission team of exactly "
+        "{team_size} seats (seat numbers from the roster; you may include "
+        "yourself). This is a float for discussion, not yet submitted to a vote. "
+        "Optionally explain it in \"speech\" (empty speech is fine)."
+    ),
+    Action.RECONSIDER: (
+        "You are the leader after table talk on suggestion {suggestion_num} of "
+        "{max_suggestions}. Either submit=true to put the current team to a vote "
+        "(optional speech), or submit=false with a different team of exactly "
+        "{team_size} seats to float another suggestion."
     ),
     Action.DISCUSS: (
-        "It is your moment in the table talk. React to the proposed team, the "
-        "record, or what others just said — or stay quiet (empty speech) if "
-        "your character would."
+        "It is your moment in the table talk. React to the leader's suggested "
+        "team, the record, or what others just said — or stay quiet (empty "
+        "speech) if your character would."
     ),
     Action.VOTE: (
         "Vote on the proposed team: approve=true or approve=false. The vote is "
@@ -108,8 +119,9 @@ def build_user(view: SeatView, action: Action, error_note: str | None = None) ->
         "round": view.round_num,
         "team_size_this_round": view.team_size,
         "leader_seat": view.leader_seat,
-        "proposal_attempt": f"{view.attempt} of 5",
-        "current_proposed_team": view.current_team,
+        "vote_attempt": f"{view.attempt} of 5",
+        "suggestion_num": f"{view.suggestion_num} of {rules.MAX_SUGGESTIONS}",
+        "current_suggested_team": view.current_team,
         "mission_record": [m.model_dump() for m in view.missions],
         "vote_record": [v.model_dump() for v in view.votes],
         "your_current_beliefs": view.beliefs.model_dump() if view.beliefs else None,
@@ -123,7 +135,11 @@ def build_user(view: SeatView, action: Action, error_note: str | None = None) ->
         "TABLE TALK SO FAR:",
         transcript,
         "YOUR TASK:",
-        ACTION_ASKS[action].format(team_size=view.team_size),
+        ACTION_ASKS[action].format(
+            team_size=view.team_size,
+            suggestion_num=view.suggestion_num,
+            max_suggestions=rules.MAX_SUGGESTIONS,
+        ),
     ]
     if error_note:
         parts += ["CORRECTION NEEDED:", error_note]

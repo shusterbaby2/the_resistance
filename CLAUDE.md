@@ -44,8 +44,9 @@ every change must respect it.
 ## The one do-first
 
 Round-robin discussion shipped before the bidding orchestrator. The bid mechanic is a
-second pass on a working spine: assignment → proposal → discussion → vote → mission →
-win/loss.
+second pass on a working spine: assignment → suggestion loop → vote → mission →
+win/loss. Per vote attempt the leader may float up to 3 teams for discussion;
+the third auto-submits.
 
 ## Layout
 

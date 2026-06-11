@@ -34,6 +34,14 @@ class ProposeOut(BaseModel):
     beliefs: list[BeliefEntry]
 
 
+class ReconsiderOut(BaseModel):
+    reasoning: str
+    speech: str
+    submit: bool
+    team: list[int] = Field(default_factory=list)
+    beliefs: list[BeliefEntry]
+
+
 class VoteOut(BaseModel):
     reasoning: str
     approve: bool
@@ -47,6 +55,7 @@ class MissionOut(BaseModel):
 
 SCHEMAS: dict[Action, type[BaseModel]] = {
     Action.PROPOSE: ProposeOut,
+    Action.RECONSIDER: ReconsiderOut,
     Action.DISCUSS: DiscussOut,
     Action.VOTE: VoteOut,
     Action.MISSION: MissionOut,
@@ -95,7 +104,9 @@ class LLMController(Controller):
         return result
 
     def _validate(self, view: SeatView, action: Action, out: BaseModel) -> str | None:
-        if action == Action.PROPOSE:
+        if action in (Action.PROPOSE, Action.RECONSIDER):
+            if action == Action.RECONSIDER and out.submit:
+                return None
             team = sorted(set(out.team))
             valid = {p.seat for p in view.players}
             if len(team) != view.team_size or not set(team) <= valid:
@@ -119,6 +130,10 @@ class LLMController(Controller):
         if action == Action.PROPOSE:
             return AgentOutput(reasoning=parsed.reasoning, speech=parsed.speech,
                                team=sorted(set(parsed.team)), beliefs=beliefs)
+        if action == Action.RECONSIDER:
+            team = sorted(set(parsed.team)) if parsed.team else None
+            return AgentOutput(reasoning=parsed.reasoning, speech=parsed.speech,
+                               submit=parsed.submit, team=team, beliefs=beliefs)
         if action == Action.DISCUSS:
             return AgentOutput(reasoning=parsed.reasoning, speech=parsed.speech,
                                beliefs=beliefs)

@@ -7,14 +7,15 @@ failing here.
 
 from conftest import ScriptableController, make_engine
 
-V1_TYPES = {"game_start", "round_start", "turn_start", "proposal", "thought",
-            "speech", "team_vote", "mission", "round_end", "game_end"}
+V1_TYPES = {"game_start", "round_start", "turn_start", "suggestion", "proposal",
+            "thought", "speech", "team_vote", "mission", "round_end", "game_end"}
 ENGINE_EXTRAS = {"llm_call", "engine_note"}
 
 REQUIRED_FIELDS = {
     "game_start": {"players", "roles", "missionPlan", "missionsToWin"},
     "round_start": {"round", "leader", "missionSize", "attempt"},
     "turn_start": {"round", "action"},
+    "suggestion": {"round", "leader", "attempt", "suggestion", "team"},
     "proposal": {"round", "leader", "attempt", "team"},
     "thought": {"round", "agent", "text"},
     "speech": {"round", "agent", "text"},

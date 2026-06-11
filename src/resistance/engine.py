@@ -1,7 +1,12 @@
 """The game state machine.
 
-Drives assignment → proposal → discussion → vote → mission → win/loss,
+Drives assignment → suggestion loop → vote → mission → win/loss,
 emitting one schema-v1 event per beat (see resistance_ui/resistance-event-schema.md).
+
+Per attempt the leader may float up to MAX_SUGGESTIONS teams for discussion;
+after each float everyone discusses (staying quiet is fine). The leader then
+submits for a vote or suggests an alternate team. The third suggestion auto-
+submits after discussion.
 The engine never renders; renderers never run game logic. Controllers (LLM,
 scripted, human) are the only I/O boundary and every seat is treated identically.
 
@@ -149,16 +154,25 @@ class GameEngine:
 
     # ------------------------------------------------------------- phases
 
-    def _propose(self) -> list[int]:
-        leader = self.state.leader_seat
-        out = self._act(leader, Action.PROPOSE)
-        team = self._validated_team(leader, out.team)
+    def _emit_suggestion(self, leader: int, team: list[int]) -> None:
         self.state.current_team = team
-        self.emit(EventType.PROPOSAL, round_=self.state.round_num,
-                  leader=self._id(leader), attempt=self.state.attempt,
-                  team=[self._id(s) for s in team])
-        self._say(leader, out.speech)
-        return team
+        self.emit(
+            EventType.SUGGESTION,
+            round_=self.state.round_num,
+            leader=self._id(leader),
+            attempt=self.state.attempt,
+            suggestion=self.state.suggestion,
+            team=[self._id(s) for s in team],
+        )
+
+    def _emit_proposal(self, leader: int) -> None:
+        self.emit(
+            EventType.PROPOSAL,
+            round_=self.state.round_num,
+            leader=self._id(leader),
+            attempt=self.state.attempt,
+            team=[self._id(s) for s in self.state.current_team],
+        )
 
     def _validated_team(self, leader: int, team: list[int] | None) -> list[int]:
         size = self.state.team_size()
@@ -174,6 +188,32 @@ class GameEngine:
                   agent=self._id(leader), note="invalid_team_corrected",
                   got=team, corrected_to=[self._id(s) for s in fixed])
         return fixed
+
+    def _run_suggestion_phase(self) -> None:
+        """Leader floats teams for discussion, then locks one in for the vote."""
+        leader = self.state.leader_seat
+        self.state.suggestion = 1
+
+        out = self._act(leader, Action.PROPOSE)
+        team = self._validated_team(leader, out.team)
+        self._emit_suggestion(leader, team)
+        self._say(leader, out.speech)
+        self._run_discussion()
+
+        while self.state.suggestion < rules.MAX_SUGGESTIONS:
+            out = self._act(leader, Action.RECONSIDER)
+            if out.submit is not False:
+                self._say(leader, out.speech)
+                self._emit_proposal(leader)
+                return
+            team = self._validated_team(leader, out.team)
+            self.state.suggestion += 1
+            self._emit_suggestion(leader, team)
+            self._say(leader, out.speech)
+            self._run_discussion()
+
+        # Third suggestion: auto-submit after discussion.
+        self._emit_proposal(leader)
 
     def _run_discussion(self) -> None:
         leader = self.state.leader_seat
@@ -259,14 +299,15 @@ class GameEngine:
                       attempt=self.state.attempt)
             approved = False
             while self.state.attempt <= rules.MAX_PROPOSALS_PER_ROUND:
-                self._propose()
-                self._run_discussion()
+                self.state.suggestion = 1
+                self._run_suggestion_phase()
                 approved = self._run_vote()
                 self._rotate_leader()
                 if approved:
                     break
                 self.state.current_team = None
                 self.state.attempt += 1
+                self.state.suggestion = 1
             if not approved:
                 self._finish(Role.SPY, "five_rejections")
                 break

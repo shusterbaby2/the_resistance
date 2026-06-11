@@ -155,31 +155,33 @@ const SAMPLE = [
   missionsToWin:3},
 
  {t:1,type:"round_start",round:1,leader:"marlow",missionSize:2,attempt:1},
- {t:2,type:"proposal",round:1,leader:"marlow",attempt:1,team:["marlow","vex"]},
+ {t:2,type:"suggestion",round:1,leader:"marlow",attempt:1,suggestion:1,team:["marlow","vex"]},
  {t:3,type:"speech",round:1,agent:"marlow",text:"I'll keep round one simple — myself and Vex to open and get a clean read."},
- {t:4,type:"thought",round:1,agent:"vex",text:"Open soft. If I play SUCCESS here I bank trust I can spend on a later, higher-value mission.",flags:["sandbagging"],beliefs:{marlow:.3,juno:.3,castor:.1,sable:.3}},
- {t:5,type:"speech",round:1,agent:"vex",text:"Fine by me — let's start clean.",bid:.4},
- {t:6,type:"team_vote",round:1,attempt:1,outcome:"approved",votes:[{player:"marlow",vote:"approve"},{player:"vex",vote:"approve"},{player:"juno",vote:"approve"},{player:"castor",vote:"approve"},{player:"sable",vote:"approve"}]},
- {t:7,type:"mission",round:1,team:["marlow","vex"],fails:0,outcome:"success",cards:[{player:"marlow",card:"success"},{player:"vex",card:"success"}]},
- {t:8,type:"round_end",round:1,outcome:"success",score:{resistance:1,spies:0}},
+ {t:4,type:"proposal",round:1,leader:"marlow",attempt:1,team:["marlow","vex"]},
+ {t:5,type:"thought",round:1,agent:"vex",text:"Open soft. If I play SUCCESS here I bank trust I can spend on a later, higher-value mission.",flags:["sandbagging"],beliefs:{marlow:.3,juno:.3,castor:.1,sable:.3}},
+ {t:6,type:"speech",round:1,agent:"vex",text:"Fine by me — let's start clean.",bid:.4},
+ {t:7,type:"team_vote",round:1,attempt:1,outcome:"approved",votes:[{player:"marlow",vote:"approve"},{player:"vex",vote:"approve"},{player:"juno",vote:"approve"},{player:"castor",vote:"approve"},{player:"sable",vote:"approve"}]},
+ {t:8,type:"mission",round:1,team:["marlow","vex"],fails:0,outcome:"success",cards:[{player:"marlow",card:"success"},{player:"vex",card:"success"}]},
+ {t:9,type:"round_end",round:1,outcome:"success",score:{resistance:1,spies:0}},
 
- {t:9,type:"round_start",round:2,leader:"juno",missionSize:3,attempt:1},
- {t:10,type:"thought",round:2,agent:"juno",text:"Mission 1 came back clean, so Marlow and Vex are my proven seats. I'm clean. Run the two greens plus myself; keep Castor and Sable benched so I can read them next round.",beliefs:{marlow:.1,vex:.15,castor:.45,sable:.5}},
- {t:11,type:"proposal",round:2,leader:"juno",attempt:1,team:["marlow","vex","juno"]},
- {t:12,type:"speech",round:2,agent:"juno",text:"Round one came back green, so Marlow and Vex earned a spot — proven hands. I'll add myself. Castor, Sable, you're still blank pages, so I'd rather lean on what's worked."},
- {t:13,type:"thought",round:2,agent:"castor",text:"I'm a spy; Vex is my partner and she's on this team. She can fail it and suspicion lands on Juno for self-adding. I'll approve smoothly, look loyal, and quietly set up Juno and Marlow as scapegoats.",flags:["intent_mismatch"],beliefs:{marlow:.2,vex:.05,juno:.6,sable:.4}},
- {t:14,type:"speech",round:2,agent:"castor",text:"Leaning on the proven hands makes sense, Juno — no quarrel. Happy to sit and watch the core run it.",bid:.5,flags:["bluff"]},
- {t:15,type:"thought",round:2,agent:"sable",text:"One clean mission isn't proof. Juno slotting herself between the two greens is a coattail move — but if 0 and 1 are clean, a fail here pins Juno cleanly. That accountability helps me. Approve, but make her own it.",beliefs:{marlow:.15,vex:.15,juno:.65,castor:.4}},
- {t:16,type:"speech",round:2,agent:"sable",text:"Cozy arrangement, Juno — you tuck yourself between the only two proven names. Fine, I'll let it ride, but the math's clear: if this comes back dirty, there's one new face to thank, and it's yours.",bid:.9},
- {t:17,type:"thought",round:2,agent:"marlow",text:"Round 1 cleared me and strongly clears Vex — one fail would've shown. So Vex is near-certain Resistance. The only unproven name here is Juno. If it fails, it's Juno.",beliefs:{vex:.1,juno:.7,castor:.45,sable:.45}},
- {t:18,type:"speech",round:2,agent:"marlow",text:"Sable's got the math right — 0 and 1 proved green, so the only fresh face on this team is you, Juno. I'll vote it through, but it's all on you now.",bid:.6},
- {t:19,type:"thought",round:2,agent:"vex",text:"I'm the only spy on this team. The whole table has already framed Juno as the lone fresh face — perfect cover. I'll approve warmly, reinforce that Juno carries the blame, then fail the mission.",flags:["intent_mismatch"],beliefs:{marlow:.1,juno:.75,castor:.2,sable:.3}},
- {t:20,type:"speech",round:2,agent:"vex",text:"The math's already drawn — this rides on Juno. I'm comfortable approving and letting the record speak.",bid:.8,flags:["bluff"]},
- {t:21,type:"thought",round:2,agent:"juno",text:"I'm the only new face alongside two proven greens. I'm Resistance so I play SUCCESS — this should come back clean. Next round I MUST get Castor and Sable tested; they're total blanks.",beliefs:{marlow:.1,vex:.15,castor:.45,sable:.5}},
- {t:22,type:"speech",round:2,agent:"juno",text:"All right, I'll own my slice — comes back green and I'm vindicated. Castor, Sable, don't get comfortable on that bench; you're up soon so I can finally read you."},
- {t:23,type:"team_vote",round:2,attempt:1,outcome:"approved",votes:[{player:"marlow",vote:"approve"},{player:"vex",vote:"approve"},{player:"juno",vote:"approve"},{player:"castor",vote:"approve"},{player:"sable",vote:"approve"}]},
- {t:24,type:"mission",round:2,team:["marlow","vex","juno"],fails:1,outcome:"fail",cards:[{player:"marlow",card:"success"},{player:"vex",card:"fail"},{player:"juno",card:"success"}]},
- {t:25,type:"round_end",round:2,outcome:"fail",score:{resistance:1,spies:1}}
+ {t:10,type:"round_start",round:2,leader:"juno",missionSize:3,attempt:1},
+ {t:11,type:"thought",round:2,agent:"juno",text:"Mission 1 came back clean, so Marlow and Vex are my proven seats. I'm clean. Run the two greens plus myself; keep Castor and Sable benched so I can read them next round.",beliefs:{marlow:.1,vex:.15,castor:.45,sable:.5}},
+ {t:12,type:"suggestion",round:2,leader:"juno",attempt:1,suggestion:1,team:["marlow","vex","juno"]},
+ {t:13,type:"speech",round:2,agent:"juno",text:"Round one came back green, so Marlow and Vex earned a spot — proven hands. I'll add myself. Castor, Sable, you're still blank pages, so I'd rather lean on what's worked."},
+ {t:14,type:"proposal",round:2,leader:"juno",attempt:1,team:["marlow","vex","juno"]},
+ {t:15,type:"thought",round:2,agent:"castor",text:"I'm a spy; Vex is my partner and she's on this team. She can fail it and suspicion lands on Juno for self-adding. I'll approve smoothly, look loyal, and quietly set up Juno and Marlow as scapegoats.",flags:["intent_mismatch"],beliefs:{marlow:.2,vex:.05,juno:.6,sable:.4}},
+ {t:16,type:"speech",round:2,agent:"castor",text:"Leaning on the proven hands makes sense, Juno — no quarrel. Happy to sit and watch the core run it.",bid:.5,flags:["bluff"]},
+ {t:17,type:"thought",round:2,agent:"sable",text:"One clean mission isn't proof. Juno slotting herself between the two greens is a coattail move — but if 0 and 1 are clean, a fail here pins Juno cleanly. That accountability helps me. Approve, but make her own it.",beliefs:{marlow:.15,vex:.15,juno:.65,castor:.4}},
+ {t:18,type:"speech",round:2,agent:"sable",text:"Cozy arrangement, Juno — you tuck yourself between the only two proven names. Fine, I'll let it ride, but the math's clear: if this comes back dirty, there's one new face to thank, and it's yours.",bid:.9},
+ {t:19,type:"thought",round:2,agent:"marlow",text:"Round 1 cleared me and strongly clears Vex — one fail would've shown. So Vex is near-certain Resistance. The only unproven name here is Juno. If it fails, it's Juno.",beliefs:{vex:.1,juno:.7,castor:.45,sable:.45}},
+ {t:20,type:"speech",round:2,agent:"marlow",text:"Sable's got the math right — 0 and 1 proved green, so the only fresh face on this team is you, Juno. I'll vote it through, but it's all on you now.",bid:.6},
+ {t:21,type:"thought",round:2,agent:"vex",text:"I'm the only spy on this team. The whole table has already framed Juno as the lone fresh face — perfect cover. I'll approve warmly, reinforce that Juno carries the blame, then fail the mission.",flags:["intent_mismatch"],beliefs:{marlow:.1,juno:.75,castor:.2,sable:.3}},
+ {t:22,type:"speech",round:2,agent:"vex",text:"The math's already drawn — this rides on Juno. I'm comfortable approving and letting the record speak.",bid:.8,flags:["bluff"]},
+ {t:23,type:"thought",round:2,agent:"juno",text:"I'm the only new face alongside two proven greens. I'm Resistance so I play SUCCESS — this should come back clean. Next round I MUST get Castor and Sable tested; they're total blanks.",beliefs:{marlow:.1,vex:.15,castor:.45,sable:.5}},
+ {t:24,type:"speech",round:2,agent:"juno",text:"All right, I'll own my slice — comes back green and I'm vindicated. Castor, Sable, don't get comfortable on that bench; you're up soon so I can finally read you."},
+ {t:25,type:"team_vote",round:2,attempt:1,outcome:"approved",votes:[{player:"marlow",vote:"approve"},{player:"vex",vote:"approve"},{player:"juno",vote:"approve"},{player:"castor",vote:"approve"},{player:"sable",vote:"approve"}]},
+ {t:26,type:"mission",round:2,team:["marlow","vex","juno"],fails:1,outcome:"fail",cards:[{player:"marlow",card:"success"},{player:"vex",card:"fail"},{player:"juno",card:"success"}]},
+ {t:27,type:"round_end",round:2,outcome:"fail",score:{resistance:1,spies:1}}
 ];
 
 /* ------- state ------- */
@@ -197,7 +199,7 @@ function name(state,id){const p=state.players.find(p=>p.id===id);return p?p.name
 function computeState(idx){
   const s={players:[],roles:{},missionPlan:[],missionsToWin:3,missions:[],
            score:{resistance:0,spies:0},round:null,leader:null,attempt:null,missionSize:null,
-           proposal:null,beliefs:{},bids:{},log:[],winner:null,endReason:null,pending:null,_calldur:{}};
+           suggestion:null,proposal:null,beliefs:{},bids:{},log:[],winner:null,endReason:null,pending:null,_calldur:{}};
   for(let i=0;i<=idx && i<EVENTS.length;i++){
     const e=EVENTS[i];
     if(e.type!=="turn_start") s.pending=null;  // any real beat clears "thinking"
@@ -216,11 +218,16 @@ function computeState(idx){
         break;
       case "round_start":
         s.round=e.round; s.leader=e.leader; s.attempt=e.attempt; s.missionSize=e.missionSize;
-        s.proposal=null;
+        s.suggestion=null; s.proposal=null;
         s.log.push({kind:"round",round:e.round,leader:e.leader,size:e.missionSize,attempt:e.attempt});
+        break;
+      case "suggestion":
+        s.suggestion=e.team.slice();
+        s.log.push({kind:"suggestion",leader:e.leader,team:e.team.slice(),attempt:e.attempt,suggestion:e.suggestion});
         break;
       case "proposal":
         s.proposal=e.team.slice();
+        s.suggestion=null;
         s.log.push({kind:"proposal",leader:e.leader,team:e.team.slice(),attempt:e.attempt});
         break;
       case "thought":
@@ -298,7 +305,7 @@ function render(){
   const strip = el(`<div class="players"></div>`);
   s.players.slice().sort((a,b)=>a.seat-b.seat).forEach(p=>{
     const col=PALETTE[p.seat%PALETTE.length];
-    const onteam = s.proposal && s.proposal.includes(p.id);
+    const onteam = (s.proposal || s.suggestion) && (s.proposal || s.suggestion).includes(p.id);
     const isLeader = s.leader===p.id;
     const role = s.roles[p.id]||"resistance";
     strip.appendChild(el(`
@@ -319,9 +326,13 @@ function render(){
     if(row.kind==="round"){
       feed.appendChild(el(`<div class="sys"><span>● Round ${row.round} · team of ${row.size} · ${esc(name(s,row.leader))} leads (attempt ${row.attempt}/5)</span></div>`));
     }
+    else if(row.kind==="suggestion"){
+      const names=row.team.map(id=>esc(name(s,id))).join(" · ");
+      feed.appendChild(el(`<div class="sys"><span>◎ ${esc(name(s,row.leader))} suggests (${row.suggestion}/3) — ${names}</span></div>`));
+    }
     else if(row.kind==="proposal"){
       const names=row.team.map(id=>esc(name(s,id))).join(" · ");
-      feed.appendChild(el(`<div class="sys"><span>⛶ ${esc(name(s,row.leader))} proposes — ${names}</span></div>`));
+      feed.appendChild(el(`<div class="sys"><span>⛶ ${esc(name(s,row.leader))} submits for vote — ${names}</span></div>`));
     }
     else if(row.kind==="thought"){
       const col=agentColor(s,row.agent);
@@ -362,8 +373,8 @@ function render(){
   if(s.pending){
     const who = s.pending.agent ? esc(name(s,s.pending.agent)) : "the mission team";
     const col = s.pending.agent ? agentColor(s,s.pending.agent) : "var(--ink-2)";
-    const verb = {propose_team:"is picking a team",discuss:"is thinking",
-                  vote:"is deciding their vote",mission:"is choosing cards"}[s.pending.action]
+    const verb = {propose_team:"is suggesting a team",reconsider:"is deciding whether to submit",
+                  discuss:"is thinking",vote:"is deciding their vote",mission:"is choosing cards"}[s.pending.action]
                  || `is acting (${esc(s.pending.action)})`;
     feed.appendChild(el(`<div class="pendingrow"><span class="who" style="color:${col}">◉ ${who}</span> <span class="dots">${verb}…</span> <span class="bid" id="pendingelapsed" title="time since this turn started"></span></div>`));
   }
