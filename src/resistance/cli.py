@@ -18,13 +18,25 @@ import time
 import webbrowser
 from pathlib import Path
 
+from collections.abc import Callable
+
 from . import rules
 from .agents.base import Action, AgentOutput, Controller
 from .agents.scripted import RandomController
 from .engine import GameEngine, SeatConfig
 from .eventlog import JsonlEventLog
 from .events import Event, EventType
-from .personality import PRESETS
+from .llm.models import (
+    DEFAULT_EFFORT,
+    DEFAULT_MODEL,
+    EFFORT_LEVELS,
+    MODEL_IDS,
+    efforts_for_lobby,
+    models_for_lobby,
+    resolve_effort,
+    resolve_model,
+)
+from .personality import PRESETS, Personality
 from .replay import replay as run_replay
 from .state import Role
 from .views import SeatView
@@ -256,10 +268,81 @@ def _load_dotenv() -> None:
             os.environ.setdefault(key.strip(), value.strip())
 
 
-def _make_llm_controllers(seats: list[int], args) -> dict[int, Controller]:
+def _personality_dict(p: Personality) -> dict:
+    return {
+        "name": p.name,
+        "style": p.style,
+        "talkativeness": p.talkativeness,
+        "aggression": p.aggression,
+        "trustfulness": p.trustfulness,
+        "deceptiveness": p.deceptiveness,
+    }
+
+
+def _preset_indices(config: dict, n: int) -> list[int]:
+    raw = config.get("presets")
+    if not isinstance(raw, list) or len(raw) != n:
+        return [i % len(PRESETS) for i in range(n)]
+    return [int(i) % len(PRESETS) for i in raw]
+
+
+def _per_seat_values(
+    config: dict,
+    key: str,
+    n: int,
+    default: str,
+    resolver: Callable[[str | None, str], str],
+) -> list[str]:
+    raw = config.get(key)
+    if not isinstance(raw, list) or len(raw) != n:
+        return [default] * n
+    return [resolver(v, default) for v in raw]
+
+
+def _build_lobby(args, *, human: bool, human_name: str = "You") -> dict:
+    default_presets = [i % len(PRESETS) for i in range(rules.N_PLAYERS)]
+    default_model = resolve_model(args.model)
+    default_effort = resolve_effort(args.effort)
+    seats = []
+    for seat in range(rules.N_PLAYERS):
+        is_human = human and seat == 0
+        preset = default_presets[seat]
+        entry = {
+            "seat": seat,
+            "preset": preset,
+            "model": default_model,
+            "effort": default_effort,
+            "isHuman": is_human,
+            "name": human_name if is_human else PRESETS[preset].name,
+        }
+        seats.append(entry)
+    return {
+        "seed": args.seed,
+        "command": args.command,
+        "offline": args.offline,
+        "human": human,
+        "defaultModel": default_model,
+        "defaultEffort": default_effort,
+        "models": models_for_lobby(),
+        "efforts": efforts_for_lobby(),
+        "presets": [
+            {"index": i, **_personality_dict(p)}
+            for i, p in enumerate(PRESETS)
+        ],
+        "seats": seats,
+    }
+
+
+def _make_llm_controllers(
+    seats: list[int],
+    preset_by_seat: dict[int, int],
+    model_by_seat: dict[int, str],
+    effort_by_seat: dict[int, str],
+    args,
+) -> dict[int, Controller]:
     if args.offline:
         return {
-            s: RandomController(s, args.seed, PRESETS[s % len(PRESETS)])
+            s: RandomController(s, args.seed, PRESETS[preset_by_seat[s] % len(PRESETS)])
             for s in seats
         }
     _load_dotenv()
@@ -269,10 +352,17 @@ def _make_llm_controllers(seats: list[int], args) -> dict[int, Controller]:
     from .agents.llm_agent import LLMController
     from .llm.claude import ClaudeClient
 
-    client = ClaudeClient(model=args.model, effort=args.effort)
-    personas = PRESETS[: len(seats)]
-    return {s: LLMController(s, persona, client)
-            for s, persona in zip(seats, personas)}
+    clients: dict[tuple[str, str | None], ClaudeClient] = {}
+    controllers: dict[int, Controller] = {}
+    for s in seats:
+        model = model_by_seat[s]
+        effort = effort_by_seat[s]
+        key = (model, effort)
+        if key not in clients:
+            clients[key] = ClaudeClient(model=model, effort=effort)
+        controllers[s] = LLMController(
+            s, PRESETS[preset_by_seat[s] % len(PRESETS)], clients[key])
+    return controllers
 
 
 def _log_path(prefix: str, seed: int) -> Path:
@@ -280,17 +370,26 @@ def _log_path(prefix: str, seed: int) -> Path:
     return Path("logs") / f"{prefix}-{stamp}-seed{seed}.jsonl"
 
 
-def _run_game(seat_configs: list[SeatConfig], args, human: bool) -> None:
+def _run_game(
+    build_seats: Callable[[dict], list[SeatConfig]],
+    args,
+    human: bool,
+) -> None:
     log = JsonlEventLog(_log_path(args.command, args.seed))
     server = None
+    start_config: dict = {}
     if args.web:
         from .webserver import live_url, start_server
 
-        server = start_server(Path.cwd())
+        lobby = _build_lobby(args, human=human, human_name=args.name if human else "You")
+        server, session = start_server(Path.cwd(), lobby=lobby)
         # Human players get the blind view — no spoilers; spectators get omniscient.
         url = live_url(server, log.path, blind=human)
         webbrowser.open(url)
         print(f"Live web view: {url}")
+        print("Configure players in the browser, then click Start Game.")
+        start_config = session.wait_for_start()
+    seat_configs = build_seats(start_config)
     renderer = ConsoleRenderer(human=human, reveal=args.reveal)
     engine = GameEngine(seat_configs, seed=args.seed, listeners=[log, renderer])
     try:
@@ -308,23 +407,56 @@ def _run_game(seat_configs: list[SeatConfig], args, human: bool) -> None:
         print("View it: open resistance_ui/resistance-replayer.html and load that file.")
 
 
+def _seat_llm_options(config: dict, args) -> tuple[list[int], dict[int, str], dict[int, str]]:
+    n = rules.N_PLAYERS
+    default_model = resolve_model(args.model)
+    default_effort = resolve_effort(args.effort)
+    preset_idxs = _preset_indices(config, n)
+    models = _per_seat_values(config, "models", n, default_model, resolve_model)
+    efforts = _per_seat_values(config, "efforts", n, default_effort, resolve_effort)
+    return (
+        preset_idxs,
+        {i: models[i] for i in range(n)},
+        {i: efforts[i] for i in range(n)},
+    )
+
+
 def cmd_play(args) -> None:
-    ai_seats = list(range(1, rules.N_PLAYERS))
-    controllers = _make_llm_controllers(ai_seats, args)
-    ai_names = [PRESETS[i - 1].name for i in ai_seats]
-    seats = [SeatConfig(name=args.name, controller=HumanController(), is_human=True)]
-    seats += [SeatConfig(name=n, controller=controllers[s])
-              for s, n in zip(ai_seats, ai_names)]
-    _run_game(seats, args, human=True)
+    def build_seats(config: dict) -> list[SeatConfig]:
+        preset_idxs, model_by_seat, effort_by_seat = _seat_llm_options(config, args)
+        ai_seats = list(range(1, rules.N_PLAYERS))
+        controllers = _make_llm_controllers(
+            ai_seats,
+            {s: preset_idxs[s] for s in ai_seats},
+            model_by_seat,
+            effort_by_seat,
+            args,
+        )
+        ai_names = [PRESETS[preset_idxs[s]].name for s in ai_seats]
+        seats = [SeatConfig(name=args.name, controller=HumanController(), is_human=True)]
+        seats += [SeatConfig(name=n, controller=controllers[s])
+                  for s, n in zip(ai_seats, ai_names)]
+        return seats
+
+    _run_game(build_seats, args, human=True)
 
 
 def cmd_watch(args) -> None:
-    all_seats = list(range(rules.N_PLAYERS))
-    controllers = _make_llm_controllers(all_seats, args)
-    names = [p.name for p in PRESETS[: rules.N_PLAYERS]]
-    seats = [SeatConfig(name=n, controller=controllers[s])
-             for s, n in zip(all_seats, names)]
-    _run_game(seats, args, human=False)
+    def build_seats(config: dict) -> list[SeatConfig]:
+        preset_idxs, model_by_seat, effort_by_seat = _seat_llm_options(config, args)
+        all_seats = list(range(rules.N_PLAYERS))
+        controllers = _make_llm_controllers(
+            all_seats,
+            {s: preset_idxs[s] for s in all_seats},
+            model_by_seat,
+            effort_by_seat,
+            args,
+        )
+        names = [PRESETS[preset_idxs[s]].name for s in all_seats]
+        return [SeatConfig(name=n, controller=controllers[s])
+                for s, n in zip(all_seats, names)]
+
+    _run_game(build_seats, args, human=False)
 
 
 def cmd_replay(args) -> None:
@@ -338,11 +470,11 @@ def main(argv: list[str] | None = None) -> None:
 
     def common(p):
         p.add_argument("--seed", type=int, default=random.randrange(1_000_000))
-        p.add_argument("--model", default="claude-opus-4-8")
-        p.add_argument("--effort", default="medium",
-                       choices=["low", "medium", "high", "xhigh", "max"],
-                       help="agent thinking depth: low = snappiest turns, "
-                            "high+ = strongest deduction (default: medium)")
+        p.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODEL_IDS),
+                       help="default Claude model for AI seats (default: %(default)s)")
+        p.add_argument("--effort", default=DEFAULT_EFFORT, choices=sorted(EFFORT_LEVELS),
+                       help="default thinking depth: low = snappiest turns, "
+                            "high+ = strongest deduction (default: %(default)s)")
         p.add_argument("--offline", action="store_true",
                        help="use scripted agents (no API key needed)")
         p.add_argument("--reveal", action="store_true",

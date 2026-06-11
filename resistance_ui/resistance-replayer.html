@@ -101,6 +101,31 @@
   #livebadge{font-weight:600}
   .filerow{font-size:12px;color:var(--ink-3)}
   .filerow input{font-size:12px}
+  /* lobby (live mode, before Start Game) */
+  .lobby{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:18px}
+  .lobby h2{font-size:15px;font-weight:600;margin:0 0 4px}
+  .lobby .lead{color:var(--ink-2);font-size:13px;margin:0 0 16px}
+  .lobbymeta{display:flex;flex-wrap:wrap;gap:10px 18px;font-size:12px;color:var(--ink-3);margin-bottom:14px}
+  .lobbymeta b{color:var(--ink-2);font-weight:600}
+  .seatgrid{display:grid;gap:10px}
+  @media(min-width:640px){.seatgrid{grid-template-columns:1fr 1fr}}
+  .seatcard{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px}
+  .seatcard.human{border-color:var(--info)}
+  .seathead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px}
+  .seathead .num{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+  .seathead .label{font-weight:600;font-size:13px}
+  .seatcard select{width:100%;font:inherit;font-size:13px;padding:6px 8px;border-radius:var(--radius);border:1px solid var(--line-2);background:var(--surface);color:var(--ink)}
+  .seatopts{display:grid;gap:8px;margin-top:8px}
+  @media(min-width:480px){.seatopts{grid-template-columns:1fr 1fr}}
+  .seatopts label{display:block;font-size:11px;color:var(--ink-3);margin-bottom:3px}
+  .seatopts .field{display:flex;flex-direction:column}
+  .seatstyle{font-size:12px;color:var(--ink-2);margin:6px 0 0;line-height:1.4}
+  .traits{display:flex;flex-wrap:wrap;gap:4px 8px;margin-top:8px;font-size:11px;color:var(--ink-3)}
+  .traits span{background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .lobbyactions{display:flex;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap}
+  .lobbyactions button.primary{background:var(--info-bg);border-color:var(--info);color:var(--info);font-weight:600;padding:8px 16px}
+  .lobbystatus{font-size:12px;color:var(--ink-3)}
+  .lobbystatus.err{color:var(--bad)}
 </style>
 </head>
 <body>
@@ -136,6 +161,17 @@
   <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;flex-wrap:wrap;gap:8px">
     <h1>AI Resistance · replay</h1>
     <span class="sub"><span id="livebadge" style="display:none"></span> <span id="filename">sample game</span></span>
+  </div>
+
+  <div id="lobby" class="lobby" style="display:none" aria-live="polite">
+    <h2>Game lobby</h2>
+    <p class="lead">Pick a persona, model, and thinking depth for each AI seat, then start when you're ready.</p>
+    <div class="lobbymeta" id="lobbymeta"></div>
+    <div class="seatgrid" id="seatgrid"></div>
+    <div class="lobbyactions">
+      <button id="startgame" class="primary" type="button"><span class="icon">▶</span> Start Game</button>
+      <span class="lobbystatus" id="lobbystatus"></span>
+    </div>
   </div>
 
   <div id="board"></div>
@@ -497,6 +533,9 @@ const LIVE = QS.get("live");
 let following = true;
 let liveEnded = false;
 let pendingSince = null, lastPendingT = -1;
+let lobbyData = null;
+let lobbyDismissed = false;
+let lobbyStarting = false;
 
 /* live elapsed counter on the "is thinking…" row */
 setInterval(()=>{
@@ -509,6 +548,172 @@ setInterval(()=>{
 
 if(QS.get("blind")==="1") document.getElementById("blind").click();
 if(QS.get("hideroles")==="1") document.getElementById("roles").click();
+
+function traitLabel(key){
+  return ({talkativeness:"talk",aggression:"aggro",trustfulness:"trust",deceptiveness:"deceit"})[key]||key;
+}
+
+function presetStyle(p){
+  return p && p.style ? p.style : "";
+}
+
+function presetTraits(p){
+  if(!p) return "";
+  return ["talkativeness","aggression","trustfulness","deceptiveness"]
+    .map(k=>`<span>${traitLabel(k)} ${p[k]}</span>`).join("");
+}
+
+function modelOptions(seat){
+  return (lobbyData.models||[]).map(m=>
+    `<option value="${m.id}"${m.id===seat.model?" selected":""}>${m.label}</option>`
+  ).join("");
+}
+
+function effortOptions(seat){
+  return (lobbyData.efforts||[]).map(e=>
+    `<option value="${e.id}"${e.id===seat.effort?" selected":""}>${e.label}</option>`
+  ).join("");
+}
+
+function modelHasAdaptiveThinking(modelId){
+  const m=(lobbyData.models||[]).find(x=>x.id===modelId);
+  return m ? m.adaptiveThinking !== false : true;
+}
+
+function llmControls(seat){
+  if(lobbyData.offline) return "";
+  return `<div class="seatopts">
+    <div class="field">
+      <label for="model-${seat.seat}">Model</label>
+      <select class="model" id="model-${seat.seat}" aria-label="Model for seat ${seat.seat}">${modelOptions(seat)}</select>
+    </div>
+    <div class="field effortfield">
+      <label for="effort-${seat.seat}">Thinking</label>
+      <select class="effort" id="effort-${seat.seat}" aria-label="Thinking depth for seat ${seat.seat}">${effortOptions(seat)}</select>
+    </div>
+  </div>`;
+}
+
+function wireModelEffortToggle(card){
+  const modelSel=card.querySelector("select.model");
+  const effortSel=card.querySelector("select.effort");
+  const effortField=card.querySelector(".effortfield");
+  if(!modelSel || !effortSel || !effortField) return;
+  const sync=()=>{
+    const ok=modelHasAdaptiveThinking(modelSel.value);
+    effortSel.disabled=!ok;
+    let note=effortField.querySelector(".effortnote");
+    if(ok){
+      if(note) note.remove();
+    }else if(!note){
+      note=document.createElement("span");
+      note.className="sub effortnote";
+      note.style.marginTop="4px";
+      note.textContent="Not available on Haiku";
+      effortField.appendChild(note);
+    }
+  };
+  modelSel.onchange=sync;
+  sync();
+}
+
+function renderLobby(){
+  const box=document.getElementById("lobby");
+  if(!LIVE || lobbyDismissed || !lobbyData){ box.style.display="none"; return; }
+  box.style.display="block";
+  const meta=document.getElementById("lobbymeta");
+  meta.innerHTML = [
+    `<span><b>mode</b> ${lobbyData.command||"watch"}</span>`,
+    `<span><b>seed</b> ${lobbyData.seed??"?"}</span>`,
+    lobbyData.offline ? `<span><b>agents</b> scripted (offline)</span>` : `<span><b>agents</b> Claude</span>`,
+  ].join("");
+  const grid=document.getElementById("seatgrid");
+  grid.innerHTML = (lobbyData.seats||[]).map(seat=>{
+    const preset = (lobbyData.presets||[])[seat.preset] || (lobbyData.presets||[])[0];
+    if(seat.isHuman){
+      return `<div class="seatcard human">
+        <div class="seathead"><span class="label">${seat.name||"You"}</span><span class="num">seat ${seat.seat}</span></div>
+        <div class="seatstyle">Human player — you'll act from the terminal.</div>
+      </div>`;
+    }
+    const options=(lobbyData.presets||[]).map(p=>
+      `<option value="${p.index}"${p.index===seat.preset?" selected":""}>${p.name}</option>`
+    ).join("");
+    return `<div class="seatcard" data-seat="${seat.seat}">
+      <div class="seathead"><span class="label">Seat ${seat.seat}</span><span class="num">AI</span></div>
+      <label class="sub" for="preset-${seat.seat}" style="display:block;margin-bottom:3px">Persona</label>
+      <select class="preset" id="preset-${seat.seat}" aria-label="Persona for seat ${seat.seat}">${options}</select>
+      ${llmControls(seat)}
+      <div class="seatstyle presetstyle">${presetStyle(preset)}</div>
+      <div class="traits presettraits">${presetTraits(preset)}</div>
+    </div>`;
+  }).join("");
+  grid.querySelectorAll("select.preset").forEach(sel=>{
+    sel.onchange=()=>{
+      const card=sel.closest(".seatcard");
+      const p=(lobbyData.presets||[])[Number(sel.value)];
+      card.querySelector(".presetstyle").textContent=presetStyle(p);
+      card.querySelector(".presettraits").innerHTML=presetTraits(p);
+    };
+  });
+  grid.querySelectorAll(".seatcard[data-seat]").forEach(wireModelEffortToggle);
+}
+
+async function loadLobby(){
+  if(!LIVE) return;
+  try{
+    const r=await fetch("/api/live/lobby",{cache:"no-store"});
+    if(!r.ok) throw new Error(`lobby HTTP ${r.status}`);
+    lobbyData=await r.json();
+    renderLobby();
+  }catch(err){
+    document.getElementById("lobbystatus").textContent="Could not load lobby — is the game server running?";
+    document.getElementById("lobbystatus").classList.add("err");
+  }
+}
+
+async function startLiveGame(){
+  if(!LIVE || lobbyStarting || lobbyDismissed) return;
+  lobbyStarting=true;
+  const status=document.getElementById("lobbystatus");
+  status.textContent="Starting…";
+  status.classList.remove("err");
+  const seats=lobbyData?.seats||[];
+  const presets=seats.map(seat=>{
+    if(seat.isHuman) return seat.preset??0;
+    const card=document.querySelector(`.seatcard[data-seat="${seat.seat}"] select.preset`);
+    return card ? Number(card.value) : (seat.preset??0);
+  });
+  const models=seats.map(seat=>{
+    if(seat.isHuman) return seat.model||lobbyData.defaultModel;
+    const card=document.querySelector(`.seatcard[data-seat="${seat.seat}"] select.model`);
+    return card ? card.value : (seat.model||lobbyData.defaultModel);
+  });
+  const efforts=seats.map(seat=>{
+    if(seat.isHuman) return seat.effort||lobbyData.defaultEffort;
+    const card=document.querySelector(`.seatcard[data-seat="${seat.seat}"] select.effort`);
+    return card ? card.value : (seat.effort||lobbyData.defaultEffort);
+  });
+  try{
+    const r=await fetch("/api/live/start",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({presets, models, efforts}),
+      cache:"no-store",
+    });
+    if(!r.ok) throw new Error(`start HTTP ${r.status}`);
+    lobbyDismissed=true;
+    renderLobby();
+    status.textContent="";
+    document.getElementById("startgame").disabled=true;
+  }catch(err){
+    status.textContent="Could not start — try again.";
+    status.classList.add("err");
+    lobbyStarting=false;
+  }
+}
+
+document.getElementById("startgame").onclick=startLiveGame;
 
 function updateLiveBadge(){
   const b=document.getElementById("livebadge");
@@ -546,6 +751,7 @@ render = function(){ _origRender(); updateLiveBadge(); };
 if(LIVE){
   document.getElementById("filename").textContent = LIVE.split("/").pop();
   EVENTS = []; playhead = 0;
+  loadLobby();
   pollLive();
 }
 render();

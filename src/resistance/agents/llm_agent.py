@@ -5,7 +5,7 @@ matter for the current decision. Beliefs use a list (not a dict) because
 structured outputs require closed object schemas.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ..beliefs import Beliefs, SeatBelief
 from ..llm.base import LLMClient
@@ -13,6 +13,7 @@ from ..personality import Personality
 from ..views import SeatView
 from .base import Action, AgentOutput, Controller
 from .prompts import build_system, build_user
+from .scripted import RandomController
 
 
 class BeliefEntry(BaseModel):
@@ -83,24 +84,50 @@ class LLMController(Controller):
     def act(self, view: SeatView, action: Action) -> AgentOutput:
         schema = SCHEMAS[action]
         system = self._system_prompt(view)
-        records = []
+        records: list[dict] = []
         error_note = None
         parsed = None
-        for _ in range(2):  # one retry with a correction note
-            out, record = self.client.complete(
-                system=system,
-                user=build_user(view, action, error_note),
-                schema=schema,
-            )
+        out = None
+        for attempt in range(2):  # one retry with a correction note
+            try:
+                out, record = self.client.complete(
+                    system=system,
+                    user=build_user(view, action, error_note),
+                    schema=schema,
+                )
+            except (ValidationError, ValueError) as exc:
+                records.append({
+                    "model": getattr(self.client, "model", "unknown"),
+                    "error": str(exc),
+                })
+                if attempt == 1:
+                    return self._fallback(view, action, records)
+                error_note = (
+                    "Your last response was incomplete or could not be parsed. "
+                    "Keep reasoning brief (1–2 sentences) and return complete valid JSON."
+                )
+                continue
             records.append(record)
             error_note = self._validate(view, action, out)
             if error_note is None:
                 parsed = out
                 break
         if parsed is None:
-            parsed = out  # let the engine's last-resort correction handle it
+            if out is not None:
+                parsed = out  # let the engine's last-resort correction handle it
+            else:
+                return self._fallback(view, action, records)
         result = self._to_output(action, parsed)
         result.meta["llm_calls"] = records
+        return result
+
+    def _fallback(self, view: SeatView, action: Action,
+                  records: list[dict]) -> AgentOutput:
+        """Guarantee a legal turn when the model returns unparseable output."""
+        fb = RandomController(self.seat, self.seat, self.persona)
+        result = fb.act(view, action)
+        result.meta["llm_calls"] = records
+        result.meta["fallback"] = "unparseable_output"
         return result
 
     def _validate(self, view: SeatView, action: Action, out: BaseModel) -> str | None:

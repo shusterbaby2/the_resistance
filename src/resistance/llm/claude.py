@@ -5,9 +5,9 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
-T = TypeVar("T", bound=BaseModel)
+from .models import DEFAULT_MODEL, thinking_request_options
 
-DEFAULT_MODEL = "claude-opus-4-8"
+T = TypeVar("T", bound=BaseModel)
 
 
 class ClaudeClient:
@@ -24,7 +24,6 @@ class ClaudeClient:
         kwargs: dict[str, Any] = dict(
             model=self.model,
             max_tokens=self.max_tokens,
-            thinking={"type": "adaptive"},
             # The system prompt is stable per agent per game; cache it so every
             # turn after the first reads the prefix instead of re-paying it.
             system=[{
@@ -34,9 +33,8 @@ class ClaudeClient:
             }],
             messages=[{"role": "user", "content": user}],
             output_format=schema,
+            **thinking_request_options(self.model, self.effort),
         )
-        if self.effort:
-            kwargs["output_config"] = {"effort": self.effort}
         started = time.monotonic()
         response = self._client.messages.parse(**kwargs)
         duration_ms = int((time.monotonic() - started) * 1000)

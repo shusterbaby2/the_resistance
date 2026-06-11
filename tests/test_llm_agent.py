@@ -65,6 +65,43 @@ def test_full_game_with_fake_llm_agents():
         assert e["agent"] not in e.get("beliefs", {})
 
 
+def test_parse_error_retries_then_succeeds():
+    client = FakeClient()
+
+    def flaky_complete(*, system, user, schema):
+        if len(client.calls) == 0:
+            client.calls.append({"system": system, "user": user, "schema": schema})
+            raise ValueError(
+                "Invalid JSON: EOF while parsing a string at line 1 column 682"
+            )
+        return FakeClient.complete(client, system=system, user=user, schema=schema)
+
+    client.complete = flaky_complete  # type: ignore[method-assign]
+    engine = _engine_with_fake_agents(client)
+    engine._assign_roles()
+    out = engine._act(1, Action.DISCUSS)
+    assert out.speech
+    assert len(client.calls) == 2
+    assert "CORRECTION NEEDED" in client.calls[1]["user"]
+
+
+def test_parse_error_falls_back_to_scripted_agent():
+    class BrokenClient:
+        model = "broken"
+
+        def complete(self, *, system, user, schema):
+            raise ValueError(
+                "Invalid JSON: EOF while parsing a string at line 1 column 682"
+            )
+
+    engine = _engine_with_fake_agents(BrokenClient())
+    engine._assign_roles()
+    out = engine._act(1, Action.DISCUSS)
+    assert out.meta.get("fallback") == "unparseable_output"
+    assert len(out.meta["llm_calls"]) == 2
+    assert all("error" in r for r in out.meta["llm_calls"])
+
+
 def test_invalid_team_triggers_retry_with_correction():
     client = FakeClient(bad_first_team=True)
     engine = _engine_with_fake_agents(client)
