@@ -30,16 +30,20 @@ Three successful missions: Resistance wins. Three failed missions: Spies win."""
 SPY_BRIEF = """\
 You are a SPY. Your fellow spy is {partners}. You win by getting onto missions \
 and failing them, or by forcing five rejected proposals — all while appearing \
-loyal. You have NO private channel with your partner: coordinate only by \
-reading their public moves, and never reveal either of you. Lie fluently; this \
-is the game working as intended."""
+loyal. Track the mission score every turn: when Resistance is at 2 wins, one \
+more clean mission ends the game — cover is worthless then; get yourself (or \
+your partner) on the team and fail, or steer toward rejections. You have NO \
+private channel with your partner: coordinate only by reading their public \
+moves, and never reveal either of you. Lie fluently; this is the game working \
+as intended."""
 
 RESISTANCE_BRIEF = """\
 You are RESISTANCE. Two players at this table are spies and will lie to your \
-face. You win by putting clean teams on missions. Reason hard from the \
-structured record — who proposed whom, who voted how, which missions failed \
-with which teams — not from vibes. If a mission you weren't on failed, every \
-non-you member of that team is a suspect."""
+face. You win by putting clean teams on missions. Track the mission score: at \
+2 spy mission wins the game is on the line — reject teams that smell dirty. \
+Reason hard from the structured record — who proposed whom, who voted how, \
+which missions failed with which teams — not from vibes. If a mission you \
+weren't on failed, every non-you member of that team is a suspect."""
 
 PERSONA_TEMPLATE = """\
 You are {name}, {style}. Trait dials (1-10): talkativeness {talk}, aggression \
@@ -87,8 +91,11 @@ ACTION_ASKS = {
     Action.PROPOSE: (
         "You are the leader. Suggest an opening mission team of exactly "
         "{team_size} seats (seat numbers from the roster; you may include "
-        "yourself). This is a float for discussion, not yet submitted to a vote. "
-        "Optionally explain it in \"speech\" (empty speech is fine)."
+        "yourself). Use the current mission score: if Resistance is one win from "
+        "victory, Spies must engineer a fail or rejections; if Spies are one win "
+        "from victory, Resistance must block a dirty team. This is a float for "
+        "discussion, not yet submitted to a vote. Optionally explain it in "
+        "\"speech\" (empty speech is fine)."
     ),
     Action.RECONSIDER: (
         "You are the leader after table talk on suggestion {suggestion_num} of "
@@ -108,10 +115,38 @@ ACTION_ASKS = {
     ),
     Action.MISSION: (
         "You are on the mission. Secretly choose play_success=true or false. "
-        "Only the count of fails will be revealed. Weigh the heat a fail puts "
-        "on this exact team against the progress it buys."
+        "Only the count of fails will be revealed. Check the mission score first: "
+        "a fail when Spies are one win from victory wins the game; a success "
+        "when Resistance is one win from victory wins the game. Weigh cover "
+        "against that."
     ),
 }
+
+
+def _mission_score(view: SeatView) -> dict[str, int]:
+    return {
+        "resistance": sum(1 for m in view.missions if m.succeeded),
+        "spies": sum(1 for m in view.missions if not m.succeeded),
+        "missions_to_win": rules.MISSIONS_TO_WIN,
+    }
+
+
+def _score_pressure(view: SeatView) -> str | None:
+    score = _mission_score(view)
+    r, s, need = score["resistance"], score["spies"], score["missions_to_win"]
+    notes: list[str] = []
+    if r == need - 1:
+        notes.append(
+            f"Resistance leads {r}-{s} and needs only one more successful "
+            "mission to win. Spies must prevent a clean mission (play a fail if "
+            "on the team, or work toward a fifth rejection this round)."
+        )
+    if s == need - 1:
+        notes.append(
+            f"Spies lead {r}-{s} on mission results and need only one more "
+            "failed mission to win. Resistance must stop the next failing team."
+        )
+    return " ".join(notes) if notes else None
 
 
 def build_user(view: SeatView, action: Action, error_note: str | None = None) -> str:
@@ -121,6 +156,7 @@ def build_user(view: SeatView, action: Action, error_note: str | None = None) ->
         "leader_seat": view.leader_seat,
         "vote_attempt": f"{view.attempt} of 5",
         "suggestion_num": f"{view.suggestion_num} of {rules.MAX_SUGGESTIONS}",
+        "score": _mission_score(view),
         "current_suggested_team": view.current_team,
         "mission_record": [m.model_dump() for m in view.missions],
         "vote_record": [v.model_dump() for v in view.votes],
@@ -132,6 +168,10 @@ def build_user(view: SeatView, action: Action, error_note: str | None = None) ->
     parts = [
         "STRUCTURED GAME STATE (ground truth — trust this over the talk):",
         json.dumps(state, indent=1),
+    ]
+    if pressure := _score_pressure(view):
+        parts += ["SCORE PRESSURE:", pressure]
+    parts += [
         "TABLE TALK SO FAR:",
         transcript,
         "YOUR TASK:",
