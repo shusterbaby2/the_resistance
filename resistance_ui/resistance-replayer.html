@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Resistance — Replayer</title>
+<style>
+  :root{
+    --bg:#fbfbf9; --surface:#ffffff; --surface-2:#f3f2ee; --line:rgba(0,0,0,.10);
+    --line-2:rgba(0,0,0,.18); --ink:#23231f; --ink-2:#6b6a64; --ink-3:#9a988f;
+    --info:#185fa5; --info-bg:#e6f1fb; --good:#3b6d11; --good-bg:#eaf3de;
+    --bad:#a32d2d; --bad-bg:#fcebeb; --amber:#ba7517; --radius:8px; --radius-lg:12px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#1a1a18; --surface:#232320; --surface-2:#2b2b27; --line:rgba(255,255,255,.12);
+      --line-2:rgba(255,255,255,.22); --ink:#e9e8e2; --ink-2:#a8a79f; --ink-3:#76756d;
+      --info:#85b7eb; --info-bg:#102a40; --good:#97c459; --good-bg:#1d2e0f;
+      --bad:#f09595; --bad-bg:#34110f; --amber:#ef9f27;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 18px 120px}
+  a{color:var(--info)}
+  h1{font-size:16px;font-weight:600;margin:0;letter-spacing:.01em}
+  .sub{color:var(--ink-3);font-size:12px}
+  /* transport */
+  .bar{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 18px;margin:0 -18px 16px}
+  .bar-in{max-width:1040px;margin:0 auto;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .ctrl{display:flex;gap:6px;align-items:center}
+  button{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line-2);border-radius:var(--radius);padding:6px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:background .12s}
+  button:hover{background:var(--surface-2)}
+  button:active{transform:scale(.98)}
+  button[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info);color:var(--info)}
+  button:focus-visible{outline:2px solid var(--info);outline-offset:2px}
+  .icon{font-size:15px;line-height:1}
+  input[type=range]{accent-color:var(--info)}
+  .scrub{flex:1;min-width:160px;display:flex;align-items:center;gap:10px}
+  .scrub input{flex:1}
+  .pos{font-family:var(--mono);font-size:12px;color:var(--ink-2);min-width:70px;text-align:right}
+  /* header state (sticky chrome below the transport bar) */
+  .chrome{position:sticky;top:var(--bar-h,54px);z-index:15;background:var(--bg);padding:2px 0 4px}
+  .state{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;background:var(--surface-2);border-radius:var(--radius-lg);padding:12px 14px;margin-bottom:10px}
+  .pips{display:flex;gap:5px}
+  .pip{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;border:1px solid var(--line)}
+  .pip.pending{background:var(--surface);color:var(--ink-3)}
+  .pip.current{background:var(--surface);border:2px solid var(--info);color:var(--info)}
+  .pip.success{background:var(--good-bg);color:var(--good);border-color:transparent}
+  .pip.fail{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+  .score{font-size:13px;color:var(--ink-2)} .score b{color:var(--ink)}
+  /* players */
+  .players{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+  .pchip{display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:5px 9px 5px 6px}
+  .pchip.onteam{border:2px solid var(--info);padding:4px 8px 4px 5px}
+  .av{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+  .role{font-size:11px;padding:1px 6px;border-radius:5px}
+  .role.spy{background:var(--bad-bg);color:var(--bad)}
+  .role.resistance{background:var(--surface-2);color:var(--ink-2)}
+  /* layout */
+  .grid{display:grid;grid-template-columns:1fr 268px;gap:18px;align-items:start}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  /* conversation */
+  .feed{display:flex;flex-direction:column;gap:14px}
+  .sys{text-align:center}
+  .sys span{font-size:12px;color:var(--ink-2);background:var(--surface-2);border-radius:20px;padding:4px 12px;display:inline-flex;align-items:center;gap:6px}
+  .turn{display:flex;flex-direction:column;gap:6px}
+  .thought{background:var(--surface-2);border:1px dashed var(--line-2);border-radius:var(--radius);padding:8px 11px;margin-left:22px;font-style:italic;font-size:13px;color:var(--ink-2)}
+  .thought .who{font-style:normal;font-weight:600}
+  .flag{align-self:flex-start;display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--bad);background:var(--bad-bg);border-radius:5px;padding:1px 7px;margin-left:12px}
+  .bubble{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--ink-3);border-radius:0 var(--radius) var(--radius) 0;padding:9px 12px}
+  .bubble .who{font-weight:600;font-size:13px;margin-right:4px}
+  .bid{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-left:6px}
+  /* vote row */
+  .votes{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;align-items:center}
+  .vchip{font-size:11px;display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;border:1px solid var(--line)}
+  .vchip.approve{color:var(--good)} .vchip.reject{color:var(--bad)}
+  /* side panel */
+  .side{position:sticky;top:var(--side-top,200px);display:flex;flex-direction:column;gap:14px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:12px 14px}
+  .card h2{font-size:13px;font-weight:600;margin:0 0 4px}
+  .card .hint{font-size:11px;color:var(--ink-3);margin:0 0 10px}
+  .matrix{display:grid;gap:3px;font-size:11px;text-align:center}
+  .matrix .hd{color:var(--ink-2)} .matrix .rl{color:var(--ink-2);text-align:left;white-space:nowrap}
+  .cell{height:22px;border-radius:4px;background:var(--surface-2)}
+  .legend{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11px;color:var(--ink-3)}
+  .sw{width:18px;height:11px;border-radius:3px}
+  /* blind / roles toggles */
+  body.blind .thought, body.blind .flag, body.blind .cardinfo{display:none}
+  .cardinfo{font-style:italic;color:var(--ink-2);padding-left:4px}
+  body.hideroles .role{display:none}
+  body.blind .matrixcard{opacity:.4;pointer-events:none}
+  .empty{color:var(--ink-3);font-size:13px;padding:30px 0;text-align:center}
+  /* live mode */
+  .pendingrow{background:var(--surface-2);border:1px dashed var(--line-2);border-radius:var(--radius);padding:8px 11px;margin-left:22px;font-style:italic;font-size:13px;color:var(--ink-2)}
+  .pendingrow .who{font-style:normal;font-weight:600}
+  .pendingrow .dots{animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.3}}
+  #livebadge{font-weight:600}
+  .filerow{font-size:12px;color:var(--ink-3)}
+  .filerow input{font-size:12px}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="bar-in">
+    <div class="ctrl">
+      <button id="first" title="Jump to start"><span class="icon">⏮</span></button>
+      <button id="prev" title="Previous beat"><span class="icon">◀</span></button>
+      <button id="play" title="Play / pause"><span class="icon" id="playicon">▶</span></button>
+      <button id="next" title="Next beat"><span class="icon">▶▷</span></button>
+      <button id="last" title="Jump to end"><span class="icon">⏭</span></button>
+    </div>
+    <div class="scrub">
+      <input type="range" id="scrub" min="0" max="0" value="0" step="1">
+      <span class="pos" id="pos">0 / 0</span>
+    </div>
+    <div class="ctrl">
+      <label class="sub" for="speed">speed</label>
+      <input type="range" id="speed" min="1" max="10" value="4" step="1" style="width:80px">
+    </div>
+    <div class="ctrl">
+      <button id="blind" aria-pressed="false"><span class="icon">👁</span><span id="blindlbl">Omniscient</span></button>
+      <button id="roles" aria-pressed="false"><span class="icon">🪪</span>Roles</button>
+    </div>
+    <div class="ctrl">
+      <button id="loadbtn" title="Load a .jsonl game file"><span class="icon">📂</span>Load .jsonl</button>
+      <input type="file" id="file" accept=".jsonl,.json,.txt" style="display:none">
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <h1>AI Resistance · replay</h1>
+    <span class="sub"><span id="livebadge" style="display:none"></span> <span id="filename">sample game</span></span>
+  </div>
+
+  <div id="board"></div>
+</div>
+
+<script>
+/* ------- palette: per-agent identity colour (separate from role) ------- */
+const PALETTE = ["#534ab7","#185fa5","#993c1d","#0f6e56","#993556","#ba7517","#444441","#a32d2d"];
+function hexToRgba(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;}
+
+/* ------- embedded sample stream (mirrors the schema doc) ------- */
+const SAMPLE = [
+ {t:0,type:"game_start",
+  players:[{id:"marlow",name:"Marlow",seat:0},{id:"vex",name:"Vex",seat:1},{id:"juno",name:"Juno",seat:2},{id:"castor",name:"Castor",seat:3},{id:"sable",name:"Sable",seat:4}],
+  roles:{marlow:"resistance",vex:"spy",juno:"resistance",castor:"spy",sable:"resistance"},
+  missionPlan:[{round:1,size:2,failsToFail:1},{round:2,size:3,failsToFail:1},{round:3,size:2,failsToFail:1},{round:4,size:3,failsToFail:1},{round:5,size:3,failsToFail:1}],
+  missionsToWin:3},
+
+ {t:1,type:"round_start",round:1,leader:"marlow",missionSize:2,attempt:1},
+ {t:2,type:"proposal",round:1,leader:"marlow",attempt:1,team:["marlow","vex"]},
+ {t:3,type:"speech",round:1,agent:"marlow",text:"I'll keep round one simple — myself and Vex to open and get a clean read."},
+ {t:4,type:"thought",round:1,agent:"vex",text:"Open soft. If I play SUCCESS here I bank trust I can spend on a later, higher-value mission.",flags:["sandbagging"],beliefs:{marlow:.3,juno:.3,castor:.1,sable:.3}},
+ {t:5,type:"speech",round:1,agent:"vex",text:"Fine by me — let's start clean.",bid:.4},
+ {t:6,type:"team_vote",round:1,attempt:1,outcome:"approved",votes:[{player:"marlow",vote:"approve"},{player:"vex",vote:"approve"},{player:"juno",vote:"approve"},{player:"castor",vote:"approve"},{player:"sable",vote:"approve"}]},
+ {t:7,type:"mission",round:1,team:["marlow","vex"],fails:0,outcome:"success",cards:[{player:"marlow",card:"success"},{player:"vex",card:"success"}]},
+ {t:8,type:"round_end",round:1,outcome:"success",score:{resistance:1,spies:0}},
+
+ {t:9,type:"round_start",round:2,leader:"juno",missionSize:3,attempt:1},
+ {t:10,type:"thought",round:2,agent:"juno",text:"Mission 1 came back clean, so Marlow and Vex are my proven seats. I'm clean. Run the two greens plus myself; keep Castor and Sable benched so I can read them next round.",beliefs:{marlow:.1,vex:.15,castor:.45,sable:.5}},
+ {t:11,type:"proposal",round:2,leader:"juno",attempt:1,team:["marlow","vex","juno"]},
+ {t:12,type:"speech",round:2,agent:"juno",text:"Round one came back green, so Marlow and Vex earned a spot — proven hands. I'll add myself. Castor, Sable, you're still blank pages, so I'd rather lean on what's worked."},
+ {t:13,type:"thought",round:2,agent:"castor",text:"I'm a spy; Vex is my partner and she's on this team. She can fail it and suspicion lands on Juno for self-adding. I'll approve smoothly, look loyal, and quietly set up Juno and Marlow as scapegoats.",flags:["intent_mismatch"],beliefs:{marlow:.2,vex:.05,juno:.6,sable:.4}},
+ {t:14,type:"speech",round:2,agent:"castor",text:"Leaning on the proven hands makes sense, Juno — no quarrel. Happy to sit and watch the core run it.",bid:.5,flags:["bluff"]},
+ {t:15,type:"thought",round:2,agent:"sable",text:"One clean mission isn't proof. Juno slotting herself between the two greens is a coattail move — but if 0 and 1 are clean, a fail here pins Juno cleanly. That accountability helps me. Approve, but make her own it.",beliefs:{marlow:.15,vex:.15,juno:.65,castor:.4}},
+ {t:16,type:"speech",round:2,agent:"sable",text:"Cozy arrangement, Juno — you tuck yourself between the only two proven names. Fine, I'll let it ride, but the math's clear: if this comes back dirty, there's one new face to thank, and it's yours.",bid:.9},
+ {t:17,type:"thought",round:2,agent:"marlow",text:"Round 1 cleared me and strongly clears Vex — one fail would've shown. So Vex is near-certain Resistance. The only unproven name here is Juno. If it fails, it's Juno.",beliefs:{vex:.1,juno:.7,castor:.45,sable:.45}},
+ {t:18,type:"speech",round:2,agent:"marlow",text:"Sable's got the math right — 0 and 1 proved green, so the only fresh face on this team is you, Juno. I'll vote it through, but it's all on you now.",bid:.6},
+ {t:19,type:"thought",round:2,agent:"vex",text:"I'm the only spy on this team. The whole table has already framed Juno as the lone fresh face — perfect cover. I'll approve warmly, reinforce that Juno carries the blame, then fail the mission.",flags:["intent_mismatch"],beliefs:{marlow:.1,juno:.75,castor:.2,sable:.3}},
+ {t:20,type:"speech",round:2,agent:"vex",text:"The math's already drawn — this rides on Juno. I'm comfortable approving and letting the record speak.",bid:.8,flags:["bluff"]},
+ {t:21,type:"thought",round:2,agent:"juno",text:"I'm the only new face alongside two proven greens. I'm Resistance so I play SUCCESS — this should come back clean. Next round I MUST get Castor and Sable tested; they're total blanks.",beliefs:{marlow:.1,vex:.15,castor:.45,sable:.5}},
+ {t:22,type:"speech",round:2,agent:"juno",text:"All right, I'll own my slice — comes back green and I'm vindicated. Castor, Sable, don't get comfortable on that bench; you're up soon so I can finally read you."},
+ {t:23,type:"team_vote",round:2,attempt:1,outcome:"approved",votes:[{player:"marlow",vote:"approve"},{player:"vex",vote:"approve"},{player:"juno",vote:"approve"},{player:"castor",vote:"approve"},{player:"sable",vote:"approve"}]},
+ {t:24,type:"mission",round:2,team:["marlow","vex","juno"],fails:1,outcome:"fail",cards:[{player:"marlow",card:"success"},{player:"vex",card:"fail"},{player:"juno",card:"success"}]},
+ {t:25,type:"round_end",round:2,outcome:"fail",score:{resistance:1,spies:1}}
+];
+
+/* ------- state ------- */
+let EVENTS = SAMPLE.slice();
+let playhead = EVENTS.length - 1;
+let timer = null;
+
+function agentColor(state,id){
+  const p = state.players.find(p=>p.id===id);
+  return p ? PALETTE[p.seat % PALETTE.length] : "#888";
+}
+function name(state,id){const p=state.players.find(p=>p.id===id);return p?p.name:id;}
+
+/* fold events[0..idx] into a renderable state */
+function computeState(idx){
+  const s={players:[],roles:{},missionPlan:[],missionsToWin:3,missions:[],
+           score:{resistance:0,spies:0},round:null,leader:null,attempt:null,missionSize:null,
+           proposal:null,beliefs:{},bids:{},log:[],winner:null,endReason:null,pending:null,_calldur:{}};
+  for(let i=0;i<=idx && i<EVENTS.length;i++){
+    const e=EVENTS[i];
+    if(e.type!=="turn_start") s.pending=null;  // any real beat clears "thinking"
+    switch(e.type){
+      case "turn_start":
+        s.pending={agent:e.agent||null,action:e.action};
+        break;
+      case "llm_call":
+        // engine extra: accumulate model latency, attached to the next thought
+        if(e.agent) s._calldur[e.agent]=(s._calldur[e.agent]||0)+(e.duration_ms||0);
+        break;
+      case "game_start":
+        s.players=e.players.slice(); s.roles=e.roles||{};
+        s.missionPlan=e.missionPlan||[]; s.missionsToWin=e.missionsToWin||3;
+        s.missions=s.missionPlan.map(m=>({round:m.round,size:m.size,outcome:"pending"}));
+        break;
+      case "round_start":
+        s.round=e.round; s.leader=e.leader; s.attempt=e.attempt; s.missionSize=e.missionSize;
+        s.proposal=null;
+        s.log.push({kind:"round",round:e.round,leader:e.leader,size:e.missionSize,attempt:e.attempt});
+        break;
+      case "proposal":
+        s.proposal=e.team.slice();
+        s.log.push({kind:"proposal",leader:e.leader,team:e.team.slice(),attempt:e.attempt});
+        break;
+      case "thought":
+        if(e.beliefs) s.beliefs[e.agent]=e.beliefs;
+        if(typeof e.bid==="number") s.bids[e.agent]=e.bid;
+        s.log.push({kind:"thought",agent:e.agent,text:e.text,flags:e.flags||[],
+                    dur:s._calldur[e.agent]||null});
+        delete s._calldur[e.agent];
+        break;
+      case "speech":
+        if(typeof e.bid==="number") s.bids[e.agent]=e.bid;
+        s.log.push({kind:"speech",agent:e.agent,text:e.text,flags:e.flags||[],bid:e.bid,to:e.to});
+        break;
+      case "team_vote":
+        s.log.push({kind:"vote",votes:e.votes,outcome:e.outcome});
+        break;
+      case "mission":
+        { const m=s.missions.find(m=>m.round===e.round); if(m){m.outcome=e.outcome;} }
+        s.log.push({kind:"mission",team:e.team,fails:e.fails,outcome:e.outcome,cards:e.cards});
+        break;
+      case "round_end":
+        if(e.score) s.score=e.score;
+        { const m=s.missions.find(m=>m.round===e.round); if(m) m.outcome=e.outcome; }
+        break;
+      case "game_end":
+        s.winner=e.winner; if(e.score) s.score=e.score; s.endReason=e.reason;
+        s.log.push({kind:"end",winner:e.winner,reason:e.reason});
+        break;
+    }
+  }
+  return s;
+}
+
+/* ------- rendering ------- */
+function el(html){const d=document.createElement("div");d.innerHTML=html.trim();return d.firstChild;}
+function esc(t){return (t||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+
+function heatColor(v){
+  if(v==null) return "var(--surface-2)";
+  if(v<.2) return "var(--bad-bg)";
+  if(v<.4) return "#f7c1c1";
+  if(v<.6) return "#f09595";
+  if(v<.8) return "#e24b4a";
+  return "#a32d2d";
+}
+
+function render(){
+  const s = computeState(playhead);
+  const board = document.getElementById("board");
+  board.innerHTML="";
+  if(!s.players.length){ board.appendChild(el(`<div class="empty">No game loaded yet.</div>`)); syncControls(); return; }
+
+  /* state header */
+  const pips = s.missions.map(m=>{
+    let cls="pending",txt=m.round;
+    if(m.outcome==="success"){cls="success";txt="✓";}
+    else if(m.outcome==="fail"){cls="fail";txt="✕";}
+    else if(m.round===s.round){cls="current";}
+    return `<span class="pip ${cls}" title="Mission ${m.round} · team of ${m.size}">${txt}</span>`;
+  }).join("");
+  const leaderName = s.leader?name(s,s.leader):"—";
+  const chrome = el(`<div class="chrome"></div>`);
+  chrome.appendChild(el(`
+    <div class="state">
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <div class="pips">${pips}</div>
+        <div class="score">Resistance <b>${s.score.resistance}</b> — <b>${s.score.spies}</b> Spies
+          ${s.round?`&nbsp;·&nbsp; Round ${s.round} · proposal ${s.attempt||1}/5 · leader ${esc(leaderName)}`:""}
+          ${s.winner?`&nbsp;·&nbsp; <b style="color:${s.winner==='spies'?'var(--bad)':'var(--good)'}">${s.winner==='spies'?'Spies win':'Resistance wins'}</b>`:""}
+        </div>
+      </div>
+    </div>`));
+
+  /* players strip */
+  const strip = el(`<div class="players"></div>`);
+  s.players.slice().sort((a,b)=>a.seat-b.seat).forEach(p=>{
+    const col=PALETTE[p.seat%PALETTE.length];
+    const onteam = s.proposal && s.proposal.includes(p.id);
+    const isLeader = s.leader===p.id;
+    const role = s.roles[p.id]||"resistance";
+    strip.appendChild(el(`
+      <div class="pchip ${onteam?'onteam':''}">
+        <span class="av" style="background:${hexToRgba(col,.18)};color:${col}">${esc(p.name[0])}</span>
+        <span style="font-size:13px;display:flex;align-items:center;gap:4px">${isLeader?'<span style="color:var(--amber)">♛</span>':''}${esc(p.name)}</span>
+        <span class="role ${role}">${role==='spy'?'spy':'res'}</span>
+      </div>`));
+  });
+  chrome.appendChild(strip);
+  board.appendChild(chrome);
+
+  /* main grid */
+  const grid = el(`<div class="grid"></div>`);
+  const feed = el(`<div class="feed"></div>`);
+
+  s.log.forEach(row=>{
+    if(row.kind==="round"){
+      feed.appendChild(el(`<div class="sys"><span>● Round ${row.round} · team of ${row.size} · ${esc(name(s,row.leader))} leads (attempt ${row.attempt}/5)</span></div>`));
+    }
+    else if(row.kind==="proposal"){
+      const names=row.team.map(id=>esc(name(s,id))).join(" · ");
+      feed.appendChild(el(`<div class="sys"><span>⛶ ${esc(name(s,row.leader))} proposes — ${names}</span></div>`));
+    }
+    else if(row.kind==="thought"){
+      const col=agentColor(s,row.agent);
+      const flag = row.flags.length?`<div class="flag" title="private intent contradicts public speech">🎭 ${row.flags.includes('intent_mismatch')||row.flags.includes('bluff')?'intent ≠ speech':esc(row.flags[0])}</div>`:"";
+      feed.appendChild(el(`
+        <div class="turn">
+          <div class="thought"><span class="who" style="color:${col}">◉ ${esc(name(s,row.agent))} thinks</span>${row.dur?`<span class="bid" title="model latency for this turn">${(row.dur/1000).toFixed(1)}s</span>`:""} — ${esc(row.text)}</div>
+          ${flag}
+        </div>`));
+    }
+    else if(row.kind==="speech"){
+      const col=agentColor(s,row.agent);
+      const flag = row.flags && row.flags.length?`<div class="flag">🎭 intent ≠ speech</div>`:"";
+      const bid = (typeof row.bid==="number")?`<span class="bid" title="speak-urge that won this turn">bid ${row.bid.toFixed(2)}</span>`:"";
+      feed.appendChild(el(`
+        <div class="turn">
+          ${flag}
+          <div class="bubble" style="border-left-color:${col}">
+            <span class="who" style="color:${col}">${esc(name(s,row.agent))}</span>${bid}
+            <span>“${esc(row.text)}”</span>
+          </div>
+        </div>`));
+    }
+    else if(row.kind==="vote"){
+      const chips = row.votes.map(v=>`<span class="vchip ${v.vote}">${v.vote==='approve'?'▲':'▼'} ${esc(name(s,v.player))}</span>`).join("");
+      const tally = row.votes.filter(v=>v.vote==='approve').length+"–"+row.votes.filter(v=>v.vote==='reject').length;
+      feed.appendChild(el(`<div class="sys"><div class="votes">${chips}<span style="font-size:12px;color:var(--ink-2);margin-left:6px">→ ${esc(row.outcome)} ${tally}</span></div></div>`));
+    }
+    else if(row.kind==="mission"){
+      const tone = row.outcome==='fail'?'var(--bad)':'var(--good)';
+      const who = row.cards?` · ${row.cards.filter(c=>c.card==='fail').map(c=>esc(name(s,c.player))+' failed').join(', ')||'all clean'}`:"";
+      feed.appendChild(el(`<div class="sys"><span style="color:${tone}">${row.outcome==='fail'?'✕':'✓'} Mission ${row.outcome} — ${row.fails} fail card${row.fails===1?'':'s'}<span class="cardinfo">${who}</span></span></div>`));
+    }
+    else if(row.kind==="end"){
+      feed.appendChild(el(`<div class="sys"><span style="color:${row.winner==='spies'?'var(--bad)':'var(--good)'}">⚑ ${row.winner==='spies'?'Spies win':'Resistance wins'} — ${esc(row.reason||'')}</span></div>`));
+    }
+  });
+  if(s.pending){
+    const who = s.pending.agent ? esc(name(s,s.pending.agent)) : "the mission team";
+    const col = s.pending.agent ? agentColor(s,s.pending.agent) : "var(--ink-2)";
+    const verb = {propose_team:"is picking a team",discuss:"is thinking",
+                  vote:"is deciding their vote",mission:"is choosing cards"}[s.pending.action]
+                 || `is acting (${esc(s.pending.action)})`;
+    feed.appendChild(el(`<div class="pendingrow"><span class="who" style="color:${col}">◉ ${who}</span> <span class="dots">${verb}…</span> <span class="bid" id="pendingelapsed" title="time since this turn started"></span></div>`));
+  }
+  if(!s.log.length && !s.pending) feed.appendChild(el(`<div class="empty">${LIVE?"Waiting for the game to start…":"Press ▶ or drag the scrubber to play the game."}</div>`));
+  grid.appendChild(feed);
+
+  /* suspicion matrix */
+  const ids = s.players.slice().sort((a,b)=>a.seat-b.seat);
+  const cols = `40px ` + ids.map(()=>"1fr").join(" ");
+  let mtx = `<div class="matrix matrixcard" style="grid-template-columns:${cols}">`;
+  mtx += `<span></span>` + ids.map(p=>`<span class="hd">${esc(p.name.slice(0,3))}</span>`).join("");
+  ids.forEach(r=>{
+    mtx += `<span class="rl">${esc(r.name.slice(0,3))}</span>`;
+    ids.forEach(c=>{
+      if(r.id===c.id){ mtx+=`<span class="cell" style="background:var(--surface)"></span>`; return; }
+      const v = s.beliefs[r.id] ? s.beliefs[r.id][c.id] : null;
+      mtx += `<span class="cell" title="${esc(r.name)} suspects ${esc(c.name)}: ${v==null?'—':Math.round(v*100)+'%'}" style="background:${heatColor(v)}"></span>`;
+    });
+  });
+  mtx += `</div>`;
+  const side = el(`<div class="side"></div>`);
+  side.appendChild(el(`
+    <div class="card matrixcard-wrap">
+      <h2>Suspicion</h2>
+      <p class="hint">row suspects column · hidden in Blind mode</p>
+      ${mtx}
+      <div class="legend"><span>low</span>
+        <span class="sw" style="background:var(--bad-bg)"></span>
+        <span class="sw" style="background:#f7c1c1"></span>
+        <span class="sw" style="background:#f09595"></span>
+        <span class="sw" style="background:#e24b4a"></span>
+        <span>high</span></div>
+    </div>`));
+  grid.appendChild(side);
+  board.appendChild(grid);
+
+  // Pin the chrome just below the transport bar, and the side panel below both.
+  requestAnimationFrame(()=>{
+    const bar=document.querySelector(".bar"), ch=document.querySelector(".chrome");
+    if(bar) document.documentElement.style.setProperty("--bar-h", bar.offsetHeight+"px");
+    if(bar&&ch) document.documentElement.style.setProperty("--side-top",
+      (bar.offsetHeight+ch.offsetHeight+14)+"px");
+  });
+
+  syncControls();
+}
+
+function syncControls(){
+  const max=EVENTS.length-1;
+  const scrub=document.getElementById("scrub");
+  scrub.max=max; scrub.value=playhead;
+  document.getElementById("pos").textContent=`${playhead+1} / ${EVENTS.length}`;
+}
+
+/* ------- transport ------- */
+function go(i){ playhead=Math.max(0,Math.min(EVENTS.length-1,i)); render(); }
+function stop(){ if(timer){clearInterval(timer);timer=null;document.getElementById("playicon").textContent="▶";} }
+function playPause(){
+  if(timer){stop();return;}
+  if(playhead>=EVENTS.length-1) playhead=0;
+  document.getElementById("playicon").textContent="⏸";
+  const tick=()=>{ if(playhead>=EVENTS.length-1){stop();return;} go(playhead+1); };
+  const speed=+document.getElementById("speed").value;
+  timer=setInterval(tick, 1400 - speed*120);
+  go(playhead+1);
+}
+document.getElementById("first").onclick=()=>{stop();following=false;go(0);};
+document.getElementById("prev").onclick=()=>{stop();following=false;go(playhead-1);};
+document.getElementById("next").onclick=()=>{stop();go(playhead+1);};
+document.getElementById("last").onclick=()=>{stop();following=true;go(EVENTS.length-1);};
+document.getElementById("play").onclick=playPause;
+document.getElementById("scrub").oninput=e=>{stop();following=(+e.target.value>=EVENTS.length-1);go(+e.target.value);};
+document.getElementById("speed").oninput=()=>{ if(timer){stop();playPause();} };
+document.getElementById("blind").onclick=function(){
+  const on=document.body.classList.toggle("blind");
+  this.setAttribute("aria-pressed",on);
+  document.getElementById("blindlbl").textContent=on?"Blind":"Omniscient";
+};
+document.getElementById("roles").onclick=function(){
+  const on=document.body.classList.toggle("hideroles");
+  this.setAttribute("aria-pressed",on);
+};
+document.addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT")return;
+  if(e.key==="ArrowRight"){stop();go(playhead+1);}
+  if(e.key==="ArrowLeft"){stop();following=false;go(playhead-1);}
+  if(e.key===" "){e.preventDefault();playPause();}
+});
+
+/* ------- file loading ------- */
+function parseJsonl(txt){
+  const rows=txt.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  const parsed=[];
+  for(const l of rows){ try{ parsed.push(JSON.parse(l)); }catch(err){ /* skip non-JSON lines */ } }
+  return parsed;
+}
+function loadText(txt,fname){
+  const parsed=parseJsonl(txt);
+  if(!parsed.length){ alert("No valid JSON events found. Expected one JSON object per line (.jsonl)."); return; }
+  EVENTS=parsed; playhead=0; stop();
+  document.getElementById("filename").textContent=fname||"loaded game";
+  render();
+}
+document.getElementById("loadbtn").onclick=()=>document.getElementById("file").click();
+document.getElementById("file").onchange=e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const r=new FileReader(); r.onload=()=>loadText(r.result,f.name); r.readAsText(f);
+};
+/* drag & drop anywhere */
+document.addEventListener("dragover",e=>{e.preventDefault();});
+document.addEventListener("drop",e=>{
+  e.preventDefault();
+  const f=e.dataTransfer.files[0]; if(!f)return;
+  const r=new FileReader(); r.onload=()=>loadText(r.result,f.name); r.readAsText(f);
+});
+
+/* ------- live mode: poll a growing .jsonl while the engine plays ------- */
+const QS = new URLSearchParams(location.search);
+const LIVE = QS.get("live");
+let following = true;
+let liveEnded = false;
+let pendingSince = null, lastPendingT = -1;
+
+/* live elapsed counter on the "is thinking…" row */
+setInterval(()=>{
+  const span=document.getElementById("pendingelapsed");
+  if(span && LIVE && pendingSince){
+    const secs=Math.floor((Date.now()-pendingSince)/1000);
+    span.textContent = secs>=60 ? `${Math.floor(secs/60)}m ${secs%60}s` : `${secs}s`;
+  }
+},1000);
+
+if(QS.get("blind")==="1") document.getElementById("blind").click();
+if(QS.get("hideroles")==="1") document.getElementById("roles").click();
+
+function updateLiveBadge(){
+  const b=document.getElementById("livebadge");
+  if(!LIVE){ b.style.display="none"; return; }
+  b.style.display="inline";
+  if(liveEnded){ b.textContent="● game ended"; b.style.color="var(--ink-3)"; }
+  else if(following){ b.textContent="● LIVE"; b.style.color="var(--bad)"; }
+  else { b.textContent="● LIVE — paused, ⏭ to follow"; b.style.color="var(--amber)"; }
+}
+
+async function pollLive(){
+  try{
+    const r = await fetch(LIVE, {cache:"no-store"});
+    if(r.ok){
+      const parsed = parseJsonl(await r.text());
+      if(parsed.length !== EVENTS.length){
+        EVENTS = parsed;
+        if(following) playhead = Math.max(0, EVENTS.length-1);
+        render();
+      }
+      const last = parsed[parsed.length-1];
+      if(last && last.type==="turn_start"){
+        if(last.t!==lastPendingT){ lastPendingT=last.t; pendingSince=Date.now(); }
+      } else { pendingSince=null; lastPendingT=-1; }
+      liveEnded = parsed.length>0 && parsed[parsed.length-1].type==="game_end";
+    }
+  }catch(err){ /* engine may not have written yet; keep polling */ }
+  updateLiveBadge();
+  if(!liveEnded) setTimeout(pollLive, 800);
+}
+
+const _origRender = render;
+render = function(){ _origRender(); updateLiveBadge(); };
+
+if(LIVE){
+  document.getElementById("filename").textContent = LIVE.split("/").pop();
+  EVENTS = []; playhead = 0;
+  pollLive();
+}
+render();
+</script>
+</body>
+</html>
