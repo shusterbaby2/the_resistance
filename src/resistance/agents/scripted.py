@@ -39,11 +39,6 @@ class RandomController(Controller):
         others = [p.seat for p in view.players if p.seat != view.seat]
         return sorted([view.seat] + self.rng.sample(others, view.team_size - 1))
 
-    def _speaks_up(self) -> bool:
-        # talkativeness 3 ≈ speaks ~35% of turns; 9 ≈ ~85%.
-        threshold = 0.15 + self.persona.talkativeness * 0.08
-        return self.rng.random() < threshold
-
     def _leader_name(self, view: SeatView) -> str:
         return _player_name(view, view.leader_seat)
 
@@ -216,11 +211,6 @@ class RandomController(Controller):
                 team=team, beliefs=beliefs,
             )
         if action == Action.DISCUSS:
-            if not self._speaks_up():
-                return AgentOutput(
-                    reasoning="Nothing worth adding — let them talk.",
-                    beliefs=beliefs,
-                )
             reasoning, speech = self._discuss_copy(view)
             return AgentOutput(
                 reasoning=reasoning, speech=speech, beliefs=beliefs,

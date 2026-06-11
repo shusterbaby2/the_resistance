@@ -10,8 +10,8 @@ submits after discussion.
 The engine never renders; renderers never run game logic. Controllers (LLM,
 scripted, human) are the only I/O boundary and every seat is treated identically.
 
-Discussion is round-robin (the phase-1 do-first). The bidding orchestrator
-replaces `_run_discussion` in phase 2 without touching the rest of the spine.
+Table talk uses a mechanical speaking-bid orchestrator: only the bid winner
+gets a DISCUSS controller call per slot.
 """
 
 import random
@@ -22,7 +22,16 @@ from typing import Callable
 from . import rules
 from .agents.base import Action, AgentOutput, Controller
 from .beliefs import Beliefs
+from .bidding import (
+    DEFAULT_MAX_TURNS,
+    SPEAK_FLOOR,
+    DiscussionTracker,
+    compute_bids,
+    pick_speaker,
+    table_wants_to_talk,
+)
 from .events import Event, EventType
+from .personality import NEUTRAL, Personality
 from .state import GameState, MissionRecord, PlayerState, Role, VoteRecord
 from .views import TranscriptEntry, build_seat_view
 
@@ -36,6 +45,7 @@ class SeatConfig:
     name: str
     controller: Controller
     is_human: bool = False
+    personality: Personality | None = None
 
 
 class GameEngine:
@@ -44,7 +54,8 @@ class GameEngine:
         seats: list[SeatConfig],
         seed: int,
         listeners: list[EventListener] | None = None,
-        discussion_rounds: int = 1,
+        discussion_speak_floor: float = SPEAK_FLOOR,
+        discussion_max_turns: int = DEFAULT_MAX_TURNS,
     ):
         if len(seats) != rules.N_PLAYERS:
             raise ValueError(f"exactly {rules.N_PLAYERS} seats required")
@@ -53,7 +64,11 @@ class GameEngine:
         self.seed = seed
         self.rng = random.Random(seed)
         self.listeners = list(listeners or [])
-        self.discussion_rounds = discussion_rounds
+        self.discussion_speak_floor = discussion_speak_floor
+        self.discussion_max_turns = discussion_max_turns
+        self._personas = {
+            i: self._resolve_personality(cfg) for i, cfg in enumerate(seats)
+        }
         self.state: GameState | None = None
         self.transcript: list[TranscriptEntry] = []
         self.beliefs: dict[int, Beliefs] = {}
@@ -69,6 +84,15 @@ class GameEngine:
 
     def _id(self, seat: int) -> str:
         return self.ids[seat]
+
+    @staticmethod
+    def _resolve_personality(cfg: SeatConfig) -> Personality:
+        if cfg.personality is not None:
+            return cfg.personality
+        persona = getattr(cfg.controller, "persona", None)
+        if persona is not None:
+            return persona
+        return NEUTRAL
 
     # ------------------------------------------------------------- events
 
@@ -142,15 +166,17 @@ class GameEngine:
             self.emit(EventType.THOUGHT, round_=self.state.round_num, **fields)
         return out
 
-    def _say(self, seat: int, text: str) -> None:
+    def _say(self, seat: int, text: str, *, bid: float | None = None) -> None:
         text = text.strip()
         if not text:
             return
         entry = TranscriptEntry(seat=seat, name=self.state.player(seat).name,
                                 text=text)
         self.transcript.append(entry)
-        self.emit(EventType.SPEECH, round_=self.state.round_num,
-                  agent=self._id(seat), text=text)
+        fields: dict = {"agent": self._id(seat), "text": text}
+        if bid is not None:
+            fields["bid"] = round(bid, 2)
+        self.emit(EventType.SPEECH, round_=self.state.round_num, **fields)
 
     # ------------------------------------------------------------- phases
 
@@ -216,12 +242,29 @@ class GameEngine:
         self._emit_proposal(leader)
 
     def _run_discussion(self) -> None:
-        leader = self.state.leader_seat
-        order = [(leader + i) % rules.N_PLAYERS for i in range(1, rules.N_PLAYERS + 1)]
-        for _ in range(self.discussion_rounds):
-            for seat in order:
-                out = self._act(seat, Action.DISCUSS)
-                self._say(seat, out.speech)
+        """Run bid rounds until the table goes quiet, then the leader RECONSIDERs."""
+        tracker = DiscussionTracker(transcript_start=len(self.transcript))
+        seats = range(rules.N_PLAYERS)
+        turns = 0
+        while turns < self.discussion_max_turns:
+            bids = compute_bids(
+                self.rng, self._personas, self.state, self.transcript, tracker,
+            )
+            if not table_wants_to_talk(bids, self.discussion_speak_floor):
+                break
+            winner, bid, _ = pick_speaker(
+                self.rng, self._personas, self.state, self.transcript, tracker,
+                bids=bids,
+            )
+            out = self._act(winner, Action.DISCUSS)
+            if out.speech.strip():
+                tracker.note_spoke(winner)
+                tracker.note_utterance()
+            else:
+                tracker.note_pass(winner)
+            self._say(winner, out.speech, bid=bid)
+            tracker.note_slot(seats)
+            turns += 1
 
     def _run_vote(self) -> bool:
         votes: dict[int, bool] = {}

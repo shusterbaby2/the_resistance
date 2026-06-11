@@ -1,7 +1,7 @@
 """Agent personas. Traits are 1-10 dials.
 
-In phase 1 traits shape the system prompt only. In phase 2 `talkativeness`
-becomes the static desirability term of the mechanical speaking bid.
+`talkativeness` is the static desirability term in the mechanical speaking bid;
+the other traits shape the LLM system prompt only.
 """
 
 from pydantic import BaseModel
@@ -10,10 +10,20 @@ from pydantic import BaseModel
 class Personality(BaseModel):
     name: str
     style: str  # one-line character sketch, used verbatim in the system prompt
-    talkativeness: int  # 1 quiet .. 10 dominates the table
+    talkativeness: int  # 1 quiet .. 10 dominates the table; feeds speak bids
     aggression: int  # 1 conflict-averse .. 10 accuses freely
     trustfulness: int  # 1 paranoid .. 10 takes people at their word
     deceptiveness: int  # 1 terrible liar .. 10 ice-cold bluffer
+
+
+NEUTRAL = Personality(
+    name="Player",
+    style="a measured player at the table",
+    talkativeness=5,
+    aggression=5,
+    trustfulness=5,
+    deceptiveness=5,
+)
 
 
 PRESETS: list[Personality] = [
