@@ -51,8 +51,11 @@ your only weapon — a resistance that deduces silently loses; accusations \
 force spies to defend themselves and make mistakes."""
 
 PERSONA_TEMPLATE = """\
-You are {name}, {style}. Trait dials (1-10): talkativeness {talk}, aggression \
-{aggr}, trustfulness {trust}, deceptiveness {dec}. Let these shape how often \
+You are {name}, {style}.{mind_line}{voice_line}
+Trait dials (1-10): talkativeness {talk}, aggression {aggr}, trustfulness \
+{trust}, deceptiveness {dec}, decisiveness {deci}. Decisiveness is how fast \
+you commit: high means lock your read early and act on it; low means keep \
+weighing until the record forces your hand. Let the dials shape how often \
 you speak up, how bluntly you accuse, and how you carry yourself — stay in \
 character at all times. Speak naturally in 1-3 short sentences, address \
 players by name, and never mention being an AI or break the fourth wall."""
@@ -91,10 +94,19 @@ def build_system(seat: int, persona: Personality, view_role: Role,
     else:
         brief = RESISTANCE_BRIEF
     roster = ", ".join(f"seat {s}: {n}" for s, n in sorted(seat_names.items()))
+    mind_line = (
+        f"\nHow you think: {persona.mind} Reason in this style in your "
+        "private \"reasoning\" — it is your edge and your blind spot."
+        if persona.mind else ""
+    )
+    voice_line = (
+        f"\nHow you talk: {persona.voice}" if persona.voice else ""
+    )
     persona_text = PERSONA_TEMPLATE.format(
         name=persona.name, style=persona.style, talk=persona.talkativeness,
         aggr=persona.aggression, trust=persona.trustfulness,
-        dec=persona.deceptiveness,
+        dec=persona.deceptiveness, deci=persona.decisiveness,
+        mind_line=mind_line, voice_line=voice_line,
     )
     return "\n\n".join([
         RULES_SUMMARY,
@@ -121,7 +133,11 @@ ACTION_ASKS = {
         "You are the leader after table talk on suggestion {suggestion_num} of "
         "{max_suggestions}. Either submit=true to put the current team to a vote "
         "(optional speech), or submit=false with a different team of exactly "
-        "{team_size} seats to float another suggestion."
+        "{team_size} seats to float another suggestion. Default to submitting: "
+        "every extra float costs the table tempo, and a fifth rejected vote "
+        "loses the game outright. Float a replacement only if the discussion "
+        "gave you a concrete, named reason this team is worse than the "
+        "alternative — not just to soothe the table."
     ),
     Action.DISCUSS: (
         "It is your moment in the table talk. Move the game: accuse a likely "

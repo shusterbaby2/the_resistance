@@ -58,7 +58,8 @@ the third auto-submits.
 - `src/resistance/views.py` — per-seat filtered view (knowledge boundary lives here)
 - `src/resistance/engine.py` — state machine; emits events; calls `Controller.act()`
 - `src/resistance/agents/` — `Controller` ABC, scripted agents (tests/offline), LLM agent
-- `src/resistance/llm/` — provider-agnostic `LLMClient` + Claude adapter
+- `src/resistance/llm/` — provider-agnostic `LLMClient`; Claude + Ollama (local)
+  adapters, picked per model id by `factory.make_client`
 - `src/resistance/eventlog.py`, `replay.py` — JSONL log incl. raw model output; replay renders without re-running models
 - `src/resistance/cli.py` — `resistance play|watch|replay`
 
@@ -74,6 +75,8 @@ the third auto-submits.
   the engine runs ahead and the display trickles at reading speed (use --fast for smoke
   runs and benchmarks)
 - `uv run resistance play` — human + 4 Claude agents (needs `ANTHROPIC_API_KEY` in `.env`)
+- `--model gpt-oss:20b` (or any Ollama model id) on play/watch — local agents via
+  Ollama, no API key; mixed tables work per-seat from the `--web` lobby
 - `uv run resistance replay logs/<file>.jsonl --reveal` — re-render a recorded game
 - `open resistance_ui/resistance-replayer.html` — web replayer; load or drag-drop any
   `logs/*.jsonl`

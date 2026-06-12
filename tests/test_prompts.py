@@ -76,3 +76,27 @@ def test_discuss_ask_pushes_accusations_over_banter():
     ask = ACTION_ASKS[Action.DISCUSS]
     assert "accuse" in ask.lower()
     assert "stay quiet" in ask
+
+
+def test_reconsider_ask_biases_toward_submitting():
+    ask = ACTION_ASKS[Action.RECONSIDER]
+    assert "Default to submitting" in ask
+
+
+def test_system_prompt_carries_mind_and_voice():
+    names = {i: f"P{i}" for i in range(5)}
+    for persona in PRESETS:
+        system = build_system(seat=0, persona=persona,
+                              view_role=Role.RESISTANCE,
+                              fellow_spies=[], seat_names=names)
+        assert f"How you think: {persona.mind}" in system
+        assert f"How you talk: {persona.voice}" in system
+        assert f"decisiveness {persona.decisiveness}" in system
+
+
+def test_presets_are_distinct_characters():
+    minds = {p.mind for p in PRESETS}
+    voices = {p.voice for p in PRESETS}
+    assert len(minds) == len(PRESETS)
+    assert len(voices) == len(PRESETS)
+    assert all(p.mind and p.voice for p in PRESETS)

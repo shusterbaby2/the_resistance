@@ -276,6 +276,21 @@ class RandomController(Controller):
             best = "Locking a team once the room had had its say."
             mistake = "Floated one suggestion too many."
             confusion = "When consensus formed before anyone had a real reason."
+        elif n == "Rook":
+            strategy = "Price every player, bet the percentages, never chase a loss."
+            best = "Taking the 60/40 team instead of stalling for certainty."
+            mistake = "Quoted odds on a player I never actually watched."
+            confusion = "A vote that made no sense at any price."
+        elif n == "Quill":
+            strategy = "Hold every statement against the next one and flag the drift."
+            best = "Quoting someone's round-one promise back at them."
+            mistake = "Trusted a steady story that turned out to be rehearsed."
+            confusion = "Two contradictions that pointed at different spies."
+        elif n == "Wren":
+            strategy = "Map the whole plot before the table even sees a pattern."
+            best = "Calling the alliance two rounds before it surfaced."
+            mistake = "Fell for the tidy story instead of the true one."
+            confusion = "Evidence that refused to fit a single narrative."
         else:  # Sable
             strategy = "Poke at cozy picks and watch who over-defends."
             best = "Naming the tension instead of faking agreement."

@@ -1,4 +1,4 @@
-"""Selectable Claude models and thinking-effort levels for agent seats."""
+"""Selectable models (Claude + local Ollama) and thinking-effort levels."""
 
 from dataclasses import dataclass
 
@@ -12,6 +12,7 @@ class ModelOption:
     label: str
     hint: str = ""
     adaptive_thinking: bool = True
+    provider: str = "anthropic"
 
 
 MODEL_OPTIONS: list[ModelOption] = [
@@ -22,6 +23,12 @@ MODEL_OPTIONS: list[ModelOption] = [
         "Haiku 4.5",
         "Fastest, lowest cost — no adaptive thinking",
         adaptive_thinking=False,
+    ),
+    ModelOption(
+        "gpt-oss:20b",
+        "GPT-OSS 20B (local)",
+        "Free, runs on your machine via Ollama — no API key",
+        provider="ollama",
     ),
 ]
 
@@ -40,9 +47,18 @@ EFFORT_LEVELS = {e for e, _ in EFFORT_OPTIONS}
 
 
 def resolve_model(value: str | None, default: str = DEFAULT_MODEL) -> str:
+    if not value:
+        return default
     if value in MODEL_IDS:
         return value
-    return default
+    if value.startswith("claude"):
+        return default  # unknown Claude id: fall back rather than guess
+    return value  # anything else is assumed to be a local Ollama model id
+
+
+def provider_for(model_id: str) -> str:
+    opt = MODEL_BY_ID.get(model_id)
+    return opt.provider if opt is not None else "ollama"
 
 
 def resolve_effort(value: str | None, default: str = DEFAULT_EFFORT) -> str:
@@ -73,6 +89,7 @@ def models_for_lobby() -> list[dict]:
             "label": m.label,
             "hint": m.hint,
             "adaptiveThinking": m.adaptive_thinking,
+            "provider": m.provider,
         }
         for m in MODEL_OPTIONS
     ]

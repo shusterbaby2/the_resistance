@@ -1,6 +1,7 @@
 from resistance.llm.models import (
     DEFAULT_EFFORT,
     DEFAULT_MODEL,
+    provider_for,
     resolve_effort,
     resolve_model,
     supports_adaptive_thinking,
@@ -10,8 +11,20 @@ from resistance.llm.models import (
 
 def test_resolve_model_known_and_fallback():
     assert resolve_model("claude-sonnet-4-6") == "claude-sonnet-4-6"
-    assert resolve_model("not-a-model", "claude-haiku-4-5") == "claude-haiku-4-5"
+    # Unknown Claude ids fall back to the default rather than guessing...
+    assert resolve_model("claude-bogus", "claude-haiku-4-5") == "claude-haiku-4-5"
     assert resolve_model(None) == DEFAULT_MODEL
+    # ...but anything else passes through as a local Ollama model id.
+    assert resolve_model("gpt-oss:20b") == "gpt-oss:20b"
+    assert resolve_model("llama3.1:8b") == "llama3.1:8b"
+
+
+def test_provider_routing():
+    assert provider_for("claude-opus-4-8") == "anthropic"
+    assert provider_for("claude-haiku-4-5") == "anthropic"
+    assert provider_for("gpt-oss:20b") == "ollama"
+    # Unregistered ids are assumed local.
+    assert provider_for("llama3.1:8b") == "ollama"
 
 
 def test_resolve_effort_known_and_fallback():

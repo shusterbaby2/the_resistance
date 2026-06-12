@@ -33,8 +33,8 @@ RECENT_SPOKE_PENALTY = 0.18
 NOISE_SPREAD = 0.12
 SPEAK_FLOOR = 0.32  # below this, the table is quiet — leader may call a vote
 PASS_PENALTY = 0.55  # winner took the floor but stayed silent
-FATIGUE_PER_UTTERANCE = 0.08  # each speech cools the table a little
-DEFAULT_MAX_TURNS = 24  # safety cap so pathological loops cannot run forever
+FATIGUE_PER_UTTERANCE = 0.12  # each speech cools the table a little
+DEFAULT_MAX_TURNS = 10  # hard cap per discussion; fatigue usually ends it sooner
 
 
 @dataclass

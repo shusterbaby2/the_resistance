@@ -614,7 +614,7 @@ if(QS.get("blind")==="1") document.getElementById("blind").click();
 if(QS.get("hideroles")==="1") document.getElementById("roles").click();
 
 function traitLabel(key){
-  return ({talkativeness:"talk",aggression:"aggro",trustfulness:"trust",deceptiveness:"deceit"})[key]||key;
+  return ({talkativeness:"talk",aggression:"aggro",trustfulness:"trust",deceptiveness:"deceit",decisiveness:"decisive"})[key]||key;
 }
 
 function presetStyle(p){
@@ -623,7 +623,7 @@ function presetStyle(p){
 
 function presetTraits(p){
   if(!p) return "";
-  return ["talkativeness","aggression","trustfulness","deceptiveness"]
+  return ["talkativeness","aggression","trustfulness","deceptiveness","decisiveness"]
     .map(k=>`<span>${traitLabel(k)} ${p[k]}</span>`).join("");
 }
 

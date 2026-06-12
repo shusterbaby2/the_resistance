@@ -37,6 +37,7 @@ from .llm.models import (
     MODEL_IDS,
     efforts_for_lobby,
     models_for_lobby,
+    provider_for,
     resolve_effort,
     resolve_model,
 )
@@ -386,6 +387,9 @@ def _personality_dict(p: Personality) -> dict:
         "aggression": p.aggression,
         "trustfulness": p.trustfulness,
         "deceptiveness": p.deceptiveness,
+        "decisiveness": p.decisiveness,
+        "mind": p.mind,
+        "voice": p.voice,
     }
 
 
@@ -456,20 +460,25 @@ def _make_llm_controllers(
             for s in seats
         }
     _load_dotenv()
-    if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+    needs_anthropic = any(
+        provider_for(model_by_seat[s]) == "anthropic" for s in seats
+    )
+    if needs_anthropic and not os.environ.get("ANTHROPIC_API_KEY") \
+            and not os.environ.get("ANTHROPIC_AUTH_TOKEN"):
         sys.exit("No ANTHROPIC_API_KEY found. Copy .env.example to .env, "
-                 "or run with --offline for scripted agents.")
+                 "run with --offline for scripted agents, or pick a local "
+                 "model (e.g. --model gpt-oss:20b via Ollama).")
     from .agents.llm_agent import LLMController
-    from .llm.claude import ClaudeClient
+    from .llm.factory import make_client
 
-    clients: dict[tuple[str, str | None], ClaudeClient] = {}
+    clients: dict[tuple[str, str | None], object] = {}
     controllers: dict[int, Controller] = {}
     for s in seats:
         model = model_by_seat[s]
         effort = effort_by_seat[s]
         key = (model, effort)
         if key not in clients:
-            clients[key] = ClaudeClient(model=model, effort=effort)
+            clients[key] = make_client(model, effort)
         controllers[s] = LLMController(
             s, PRESETS[preset_by_seat[s] % len(PRESETS)], clients[key])
     return controllers
@@ -662,8 +671,10 @@ def main(argv: list[str] | None = None) -> None:
 
     def common(p):
         p.add_argument("--seed", type=int, default=random.randrange(1_000_000))
-        p.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODEL_IDS),
-                       help="default Claude model for AI seats (default: %(default)s)")
+        p.add_argument("--model", default=DEFAULT_MODEL,
+                       help="model for AI seats: one of "
+                            f"{', '.join(sorted(MODEL_IDS))}, or any local "
+                            "Ollama model id (default: %(default)s)")
         p.add_argument("--effort", default=DEFAULT_EFFORT, choices=sorted(EFFORT_LEVELS),
                        help="thinking depth for team choices and mission cards; "
                             "other turns skip extended thinking for speed "
@@ -699,7 +710,8 @@ def main(argv: list[str] | None = None) -> None:
     p_debrief.add_argument("logfile")
     p_debrief.add_argument("--seed", type=int, default=0,
                            help="RNG seed for scripted agents (default: 0)")
-    p_debrief.add_argument("--model", default=DEFAULT_MODEL, choices=sorted(MODEL_IDS))
+    p_debrief.add_argument("--model", default=DEFAULT_MODEL,
+                           help="Claude model id or local Ollama model id")
     p_debrief.add_argument("--effort", default=DEFAULT_EFFORT, choices=sorted(EFFORT_LEVELS))
     p_debrief.add_argument("--offline", action="store_true",
                            help="scripted debriefs (no API key)")
