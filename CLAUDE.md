@@ -70,6 +70,9 @@ the third auto-submits.
 - `uv run resistance watch --reveal` — all-Claude game with reasoning shown
 - `--web` on play/watch — live browser view (local server tails the .jsonl; play opens
   Blind, watch opens omniscient; `turn_start` events drive the "thinking…" indicator)
+- `--fast` on play/watch — disable reading-speed pacing of the terminal view; by default
+  the engine runs ahead and the display trickles at reading speed (use --fast for smoke
+  runs and benchmarks)
 - `uv run resistance play` — human + 4 Claude agents (needs `ANTHROPIC_API_KEY` in `.env`)
 - `uv run resistance replay logs/<file>.jsonl --reveal` — re-render a recorded game
 - `open resistance_ui/resistance-replayer.html` — web replayer; load or drag-drop any

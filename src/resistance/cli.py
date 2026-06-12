@@ -14,8 +14,10 @@ Subcommands:
 import argparse
 import json
 import os
+import queue
 import random
 import sys
+import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -206,12 +208,88 @@ class ConsoleRenderer:
             print(self._dim(f"      [engine] {e['note']} for {self._name(e['agent'])}"))
 
 
+_PACER_STOP = object()
+
+
+class PacedRenderer:
+    """Listener that decouples drawing from the engine.
+
+    The engine emits events the moment controllers return; this queues them and
+    enforces a minimum reading-speed gap between drawn beats, so the engine's
+    next model call runs while the human is still reading the current line.
+    Pacing only smooths bursts — when the model is the bottleneck, the gap has
+    already elapsed by the time the next event arrives and nothing waits.
+    The JSONL log is a separate listener and is never paced; it stays the
+    authoritative, real-time record.
+    """
+
+    # type -> (base seconds, seconds per char of `text`, cap)
+    _CHAR_GAPS = {"speech": (0.4, 0.025, 3.5), "thought": (0.2, 0.012, 2.0)}
+    _FLAT_GAPS = {"suggestion": 0.8, "proposal": 0.8, "team_vote": 1.0,
+                  "mission": 1.0, "round_end": 0.6, "game_end": 0.8,
+                  "debrief": 1.5}
+
+    def __init__(self, renderer: ConsoleRenderer, scale: float = 1.0):
+        self.renderer = renderer
+        self.scale = scale
+        self._queue: queue.Queue = queue.Queue()
+        self._next_ok = 0.0
+        self._thread = threading.Thread(target=self._drain, daemon=True)
+        self._thread.start()
+
+    def __call__(self, event: Event) -> None:
+        self._queue.put(event)
+
+    def flush(self) -> None:
+        """Block until every queued event has been drawn — called before the
+        human is prompted, so they always act on a fully caught-up table."""
+        self._queue.join()
+
+    def close(self) -> None:
+        self.flush()
+        self._queue.put(_PACER_STOP)
+        self._thread.join(timeout=5)
+
+    def _gap(self, event: Event) -> float:
+        type_ = event["type"]
+        if type_ == "thought" and not self.renderer.reveal:
+            return 0.0  # hidden in blind mode; no dead air for invisible beats
+        if type_ in self._CHAR_GAPS:
+            base, per_char, cap = self._CHAR_GAPS[type_]
+            return min(cap, base + per_char * len(event.get("text", "")))
+        return self._FLAT_GAPS.get(type_, 0.0)
+
+    def _drain(self) -> None:
+        while True:
+            event = self._queue.get()
+            try:
+                if event is _PACER_STOP:
+                    return
+                wait = self._next_ok - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                try:
+                    self.renderer(event)
+                except Exception as exc:  # keep draining; a draw bug must not hang flush()
+                    print(f"[render error] {exc}", file=sys.stderr)
+                self._next_ok = time.monotonic() + self._gap(event) * self.scale
+            finally:
+                self._queue.task_done()
+
+
 # --------------------------------------------------------------- human seat
 
 class HumanController(Controller):
     """The human's I/O boundary. The engine treats this seat like any other."""
 
+    def __init__(self, sync: Callable[[], None] | None = None):
+        # Called before any prompt so a paced display catches up first; the
+        # human must always act on a fully drawn table.
+        self.sync = sync
+
     def act(self, view: SeatView, action: Action) -> AgentOutput:
+        if self.sync is not None:
+            self.sync()
         if action == Action.PROPOSE:
             return self._suggest_team(view, opening=True)
         if action == Action.RECONSIDER:
@@ -423,9 +501,20 @@ def _run_game(
         start_config = session.wait_for_start()
     seat_configs = build_seats(start_config)
     renderer = ConsoleRenderer(human=human, reveal=args.reveal)
-    engine = GameEngine(seat_configs, seed=args.seed, listeners=[log, renderer])
+    pacer: PacedRenderer | None = None
+    if args.fast:
+        listeners: list = [log, renderer]
+    else:
+        pacer = PacedRenderer(renderer)
+        listeners = [log, pacer]
+        for cfg in seat_configs:
+            if isinstance(cfg.controller, HumanController):
+                cfg.controller.sync = pacer.flush
+    engine = GameEngine(seat_configs, seed=args.seed, listeners=listeners)
     try:
         engine.run()
+        if pacer is not None:
+            pacer.close()  # drain the tail; skipped on error so Ctrl-C exits fast
     finally:
         log.close()
     print(f"Event log: {log.path}")
@@ -585,6 +674,9 @@ def main(argv: list[str] | None = None) -> None:
                        help="omniscient view: roles, thoughts, mission cards")
         p.add_argument("--web", action="store_true",
                        help="open a live web view that follows the game")
+        p.add_argument("--fast", action="store_true",
+                       help="draw events immediately instead of pacing them "
+                            "to reading speed")
 
     p_play = sub.add_parser("play", help="you + 4 AI agents")
     common(p_play)

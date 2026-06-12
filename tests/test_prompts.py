@@ -3,7 +3,8 @@
 import json
 
 from resistance.agents.base import Action
-from resistance.agents.prompts import build_user
+from resistance.agents.prompts import ACTION_ASKS, build_system, build_user
+from resistance.personality import PRESETS
 from resistance.state import GameState, MissionRecord, PlayerState, Role
 from resistance.views import build_seat_view
 
@@ -60,3 +61,18 @@ def test_build_user_no_score_pressure_early_game():
     ])
     user = build_user(view, Action.DISCUSS)
     assert "SCORE PRESSURE:" not in user
+
+
+def test_system_prompt_demands_substantive_talk():
+    names = {i: f"P{i}" for i in range(5)}
+    for role, spies in ((Role.RESISTANCE, []), (Role.SPY, [2])):
+        system = build_system(seat=0, persona=PRESETS[0], view_role=role,
+                              fellow_spies=spies, seat_names=names)
+        assert "Table talk rules" in system
+        assert "No filler" in system
+
+
+def test_discuss_ask_pushes_accusations_over_banter():
+    ask = ACTION_ASKS[Action.DISCUSS]
+    assert "accuse" in ask.lower()
+    assert "stay quiet" in ask

@@ -35,7 +35,9 @@ more clean mission ends the game — cover is worthless then; get yourself (or \
 your partner) on the team and fail, or steer toward rejections. You have NO \
 private channel with your partner: coordinate only by reading their public \
 moves, and never reveal either of you. Lie fluently; this is the game working \
-as intended."""
+as intended. Your best cover is offense: build a sincere-sounding case against \
+a Resistance player and push it. Never visibly rush to your partner's defense \
+— deflect suspicion onto someone clean instead."""
 
 RESISTANCE_BRIEF = """\
 You are RESISTANCE. Two players at this table are spies and will lie to your \
@@ -43,7 +45,10 @@ face. You win by putting clean teams on missions. Track the mission score: at \
 2 spy mission wins the game is on the line — reject teams that smell dirty. \
 Reason hard from the structured record — who proposed whom, who voted how, \
 which missions failed with which teams — not from vibes. If a mission you \
-weren't on failed, every non-you member of that team is a suspect."""
+weren't on failed, every non-you member of that team is a suspect. Say your \
+suspicions out loud: name the player and the evidence. Public pressure is \
+your only weapon — a resistance that deduces silently loses; accusations \
+force spies to defend themselves and make mistakes."""
 
 PERSONA_TEMPLATE = """\
 You are {name}, {style}. Trait dials (1-10): talkativeness {talk}, aggression \
@@ -52,13 +57,26 @@ you speak up, how bluntly you accuse, and how you carry yourself — stay in \
 character at all times. Speak naturally in 1-3 short sentences, address \
 players by name, and never mention being an AI or break the fourth wall."""
 
+TABLE_TALK_RULES = """\
+Table talk rules — every line you speak must do work:
+- Accuse: name a player you suspect and give the evidence ("Marlow pushed the \
+only team that failed — I think Marlow is a spy").
+- Defend: when you or an ally is accused, answer the accusation directly with \
+the record. Silence reads as guilt.
+- Press: demand a specific player justify a vote, a proposal, or a convenient \
+silence.
+- Commit: say how you'll vote and what would change your mind.
+No filler. Never say "sounds good", "let's stay sharp", "interesting", or any \
+pleasantry that names nobody and moves nothing — if you have nothing new to \
+add, return empty speech instead of padding the air."""
+
 OUTPUT_RULES = """\
 Output contract:
 - "reasoning": your private analysis. No one ever sees it. Be honest here even \
 when you are lying out loud.
 - "speech" (where asked): what you say aloud at the table. Everyone hears it. \
 An empty string means you stay quiet — quiet is often right for a low-talkativeness \
-character.
+character, and always better than filler.
 - "beliefs" (where asked): your current suspicion of every OTHER seat, 0.0 \
 (surely Resistance) to 1.0 (surely Spy), each with a one-line reason. This \
 persists between your turns; update it, don't reset it."""
@@ -83,6 +101,7 @@ def build_system(seat: int, persona: Personality, view_role: Role,
         f"Players at the table: {roster}. You are seat {seat}.",
         persona_text,
         brief,
+        TABLE_TALK_RULES,
         OUTPUT_RULES,
     ])
 
@@ -94,8 +113,9 @@ ACTION_ASKS = {
         "yourself). Use the current mission score: if Resistance is one win from "
         "victory, Spies must engineer a fail or rejections; if Spies are one win "
         "from victory, Resistance must block a dirty team. This is a float for "
-        "discussion, not yet submitted to a vote. Optionally explain it in "
-        "\"speech\" (empty speech is fine)."
+        "discussion, not yet submitted to a vote. In \"speech\", justify your "
+        "picks with your reads — who you trust, who you left off and why "
+        "(empty speech is fine)."
     ),
     Action.RECONSIDER: (
         "You are the leader after table talk on suggestion {suggestion_num} of "
@@ -104,9 +124,11 @@ ACTION_ASKS = {
         "{team_size} seats to float another suggestion."
     ),
     Action.DISCUSS: (
-        "It is your moment in the table talk. React to the leader's suggested "
-        "team, the record, or what others just said — or stay quiet (empty "
-        "speech) if your character would."
+        "It is your moment in the table talk. Move the game: accuse a likely "
+        "spy by name and say why, answer an accusation against you or an ally, "
+        "challenge the suggested team ('why him and not her?'), or commit to "
+        "your vote and what would change it. If you have nothing new to add, "
+        "stay quiet (empty speech) — never fill the air."
     ),
     Action.VOTE: (
         "Vote on the proposed team: approve=true or approve=false. The vote is "
