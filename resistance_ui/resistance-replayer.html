@@ -137,6 +137,32 @@
   .lobbyactions button.primary{background:var(--info-bg);border-color:var(--info);color:var(--info);font-weight:600;padding:8px 16px}
   .lobbystatus{font-size:12px;color:var(--ink-3)}
   .lobbystatus.err{color:var(--bad)}
+
+  /* web play: own-role banner + action panel */
+  #youare{border:1px solid var(--line);border-left:4px solid var(--info);background:var(--surface);
+    border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:13px;
+    position:sticky;top:58px;z-index:15;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+  #youare.spy{border-left-color:var(--bad)}
+  #youare.resistance{border-left-color:var(--good)}
+  #actionpanel{position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--surface);
+    border-top:2px solid var(--info);box-shadow:0 -8px 28px rgba(0,0,0,.14);padding:14px 18px 16px}
+  #actionpanel .ap-in{max-width:1040px;margin:0 auto}
+  #actionpanel .ap-title{font-weight:600;font-size:14px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  #actionpanel .ap-title .icon{font-size:16px}
+  #actionpanel .ap-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}
+  #actionpanel input[type=text]{flex:1;min-width:220px;padding:8px 11px;border:1px solid var(--line-2);
+    border-radius:var(--radius);font:inherit;font-size:13px;background:var(--bg);color:var(--ink)}
+  #actionpanel button.primary{background:var(--info-bg);border-color:var(--info);color:var(--info);font-weight:600}
+  #actionpanel button.good{background:var(--good-bg);border-color:var(--good);color:var(--good);font-weight:600}
+  #actionpanel button.bad{background:var(--bad-bg);border-color:var(--bad);color:var(--bad);font-weight:600}
+  #actionpanel button:disabled{opacity:.4;cursor:default;transform:none}
+  #actionpanel .pickchip[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info);color:var(--info)}
+  #actionpanel .pickcount{font-size:12px;color:var(--ink-3)}
+  #actionpanel .ap-note{font-size:12px;color:var(--ink-3);margin-top:6px}
+  body.hasaction .wrap{padding-bottom:220px}
+  #handbtn{position:fixed;right:18px;bottom:18px;z-index:45;box-shadow:0 4px 16px rgba(0,0,0,.18);
+    padding:10px 16px;border-radius:999px;font-weight:600}
+  #handbtn.raised{background:var(--info-bg);border-color:var(--info);color:var(--info)}
 </style>
 </head>
 <body>
@@ -174,6 +200,8 @@
     <span class="sub"><span id="livebadge" style="display:none"></span> <span id="filename">sample game</span></span>
   </div>
 
+  <div id="youare" style="display:none" aria-live="polite"></div>
+
   <div id="lobby" class="lobby" style="display:none" aria-live="polite">
     <h2>Game lobby</h2>
     <p class="lead">Pick a persona, model, and thinking depth for each AI seat, then start when you're ready.</p>
@@ -187,6 +215,10 @@
 
   <div id="board"></div>
 </div>
+
+<div id="actionpanel" style="display:none" role="region" aria-label="Your turn"></div>
+<button id="handbtn" style="display:none" type="button" aria-pressed="false"
+        title="Claim the next word in table talk">✋ Raise hand</button>
 
 <script>
 /* ------- palette: per-agent identity colour (separate from role) ------- */
@@ -697,7 +729,7 @@ function renderLobby(){
     if(seat.isHuman){
       return `<div class="seatcard human">
         <div class="seathead"><span class="label">${seat.name||"You"}</span><span class="num">seat ${seat.seat}</span></div>
-        <div class="seatstyle">Human player — you'll act from the terminal.</div>
+        <div class="seatstyle">Human player — your moves happen right here in the browser.</div>
       </div>`;
     }
     const options=(lobbyData.presets||[]).map(p=>
@@ -813,14 +845,242 @@ async function pollLive(){
   if(!liveEnded) setTimeout(pollLive, 800);
 }
 
+/* ------- web play: the human acts from a fixed bottom panel ------- */
+const MY_SEAT = QS.get("seat")!==null ? Number(QS.get("seat")) : null;
+let currentAction = null;     // pending request from /api/live/action
+let renderedActionId = -1;    // rebuild the form only for a new request
+let pickedTeam = new Set();
+let actionBusy = false;
+
+function apSeatName(seat){
+  const p=(currentAction?.players||[]).find(x=>x.seat===seat);
+  return p ? p.name : ("seat "+seat);
+}
+
+function apTeamNames(team){
+  return (team||[]).map(s=>esc(apSeatName(s))).join(" · ");
+}
+
+async function sendAction(fields){
+  if(!currentAction || actionBusy) return;
+  actionBusy=true;
+  try{
+    const r=await fetch("/api/live/action",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id:currentAction.id, ...fields}), cache:"no-store"});
+    const j=await r.json();
+    if(j.ok){ currentAction=null; renderedActionId=-1; renderActionPanel(); }
+  }catch(err){ /* next poll retries */ }
+  actionBusy=false;
+}
+
+function teamPickerHtml(){
+  const chips=(currentAction.players||[]).slice().sort((a,b)=>a.seat-b.seat)
+    .map(p=>`<button type="button" class="pickchip" data-seat="${p.seat}" aria-pressed="false">${esc(p.name)}</button>`)
+    .join("");
+  return `<div class="ap-row">${chips}<span class="pickcount" id="pickcount"></span></div>`;
+}
+
+function wireTeamPicker(panel, confirmBtn){
+  const update=()=>{
+    const n=currentAction.teamSize;
+    panel.querySelector("#pickcount").textContent=`${pickedTeam.size}/${n} picked`;
+    confirmBtn.disabled = pickedTeam.size!==n;
+  };
+  panel.querySelectorAll(".pickchip").forEach(chip=>{
+    chip.onclick=()=>{
+      const seat=Number(chip.dataset.seat);
+      if(pickedTeam.has(seat)) pickedTeam.delete(seat);
+      else if(pickedTeam.size<currentAction.teamSize) pickedTeam.add(seat);
+      chip.setAttribute("aria-pressed", pickedTeam.has(seat)?"true":"false");
+      update();
+    };
+  });
+  update();
+}
+
+function renderActionPanel(){
+  const panel=document.getElementById("actionpanel");
+  updateHandBtn();
+  if(!currentAction){
+    panel.style.display="none";
+    document.body.classList.remove("hasaction");
+    renderedActionId=-1;
+    return;
+  }
+  if(currentAction.action==="discuss" && handRaised){
+    handRaised=false; updateHandBtn();  // the floor is yours; hand goes down
+  }
+  if(currentAction.id===renderedActionId) return;  // keep typed text intact
+  renderedActionId=currentAction.id;
+  pickedTeam=new Set();
+  panel.style.display="block";
+  document.body.classList.add("hasaction");
+  const a=currentAction;
+  const speechInput=`<input type="text" id="ap-speech" maxlength="280" placeholder="Say something (optional)…">`;
+
+  if(a.action==="discuss"){
+    panel.innerHTML=`<div class="ap-in">
+      <div class="ap-title"><span class="icon">💬</span> Your moment in the table talk</div>
+      <div class="ap-row">
+        <input type="text" id="ap-speech" maxlength="280" placeholder="Accuse, defend, press, or commit…" autofocus>
+        <button class="primary" id="ap-speak">Speak</button>
+        <button id="ap-quiet">Stay quiet</button>
+      </div></div>`;
+    panel.querySelector("#ap-speak").onclick=()=>sendAction({speech:panel.querySelector("#ap-speech").value});
+    panel.querySelector("#ap-quiet").onclick=()=>sendAction({speech:""});
+    panel.querySelector("#ap-speech").onkeydown=e=>{ if(e.key==="Enter") sendAction({speech:e.target.value}); };
+  }
+  else if(a.action==="vote"){
+    panel.innerHTML=`<div class="ap-in">
+      <div class="ap-title"><span class="icon">🗳</span> Vote on the team: ${apTeamNames(a.currentTeam)} <span class="pickcount">(attempt ${a.attempt}/5)</span></div>
+      <div class="ap-row">
+        <button class="good" id="ap-approve">▲ Approve</button>
+        <button class="bad" id="ap-reject">▼ Reject</button>
+      </div>
+      ${a.attempt>=4?'<div class="ap-note">Careful — a fifth consecutive rejection hands the game to the spies.</div>':""}
+    </div>`;
+    panel.querySelector("#ap-approve").onclick=()=>sendAction({approve:true});
+    panel.querySelector("#ap-reject").onclick=()=>sendAction({approve:false});
+  }
+  else if(a.action==="propose_team"){
+    panel.innerHTML=`<div class="ap-in">
+      <div class="ap-title"><span class="icon">♛</span> You lead — pick ${a.teamSize} for the round-${a.round} mission</div>
+      ${teamPickerHtml()}
+      <div class="ap-row">${speechInput}<button class="primary" id="ap-suggest">Suggest team</button></div>
+    </div>`;
+    const btn=panel.querySelector("#ap-suggest");
+    wireTeamPicker(panel, btn);
+    btn.onclick=()=>sendAction({team:[...pickedTeam], speech:panel.querySelector("#ap-speech").value});
+  }
+  else if(a.action==="reconsider"){
+    panel.innerHTML=`<div class="ap-in">
+      <div class="ap-title"><span class="icon">♛</span> Suggestion ${a.suggestion}/${a.maxSuggestions}: ${apTeamNames(a.currentTeam)} — submit it, or float another?</div>
+      <div class="ap-row">${speechInput}
+        <button class="primary" id="ap-submit">Submit for vote</button>
+        <button id="ap-float">Float another team</button>
+      </div>
+      <div id="ap-floatzone" style="display:none">${teamPickerHtml()}
+        <div class="ap-row"><button class="primary" id="ap-newteam" disabled>Suggest new team</button></div>
+      </div>
+    </div>`;
+    panel.querySelector("#ap-submit").onclick=()=>sendAction({submit:true, speech:panel.querySelector("#ap-speech").value});
+    panel.querySelector("#ap-float").onclick=()=>{
+      panel.querySelector("#ap-floatzone").style.display="block";
+      panel.querySelector("#ap-float").disabled=true;
+      wireTeamPicker(panel, panel.querySelector("#ap-newteam"));
+    };
+    panel.querySelector("#ap-newteam").onclick=()=>sendAction({submit:false, team:[...pickedTeam], speech:panel.querySelector("#ap-speech").value});
+  }
+  else if(a.action==="mission"){
+    panel.innerHTML=`<div class="ap-in">
+      <div class="ap-title"><span class="icon">🕵</span> You're a spy on this mission — play your card</div>
+      <div class="ap-row">
+        <button class="good" id="ap-success">Play SUCCESS</button>
+        <button class="bad" id="ap-fail">Play FAIL</button>
+      </div>
+      <div class="ap-note">Only the count of fails is revealed, never who played them.</div>
+    </div>`;
+    panel.querySelector("#ap-success").onclick=()=>sendAction({playSuccess:true});
+    panel.querySelector("#ap-fail").onclick=()=>sendAction({playSuccess:false});
+  }
+  else if(a.action==="debrief"){
+    panel.innerHTML=`<div class="ap-in">
+      <div class="ap-title"><span class="icon">🏁</span> Post-game debrief — roles are revealed</div>
+      <div class="ap-row"><input type="text" id="ap-strategy" placeholder="Your strategy tonight…"></div>
+      <div class="ap-row"><input type="text" id="ap-best" placeholder="Your best move…"></div>
+      <div class="ap-row"><input type="text" id="ap-mistake" placeholder="Where you went wrong (optional)…"></div>
+      <div class="ap-row"><input type="text" id="ap-confusion" placeholder="What confused you most…">
+        <button class="primary" id="ap-send">Send debrief</button></div>
+    </div>`;
+    panel.querySelector("#ap-send").onclick=()=>sendAction({
+      strategy:panel.querySelector("#ap-strategy").value,
+      best_move:panel.querySelector("#ap-best").value,
+      mistake:panel.querySelector("#ap-mistake").value,
+      confusion:panel.querySelector("#ap-confusion").value,
+    });
+  }
+  else{
+    panel.innerHTML=`<div class="ap-in"><div class="ap-title">Your turn (${esc(a.action)})</div>
+      <div class="ap-row"><button class="primary" id="ap-ok">Continue</button></div></div>`;
+    panel.querySelector("#ap-ok").onclick=()=>sendAction({});
+  }
+  const focus=panel.querySelector("input[type=text]");
+  if(focus) focus.focus();
+}
+
+/* raise hand: outbid the table for the next discussion slot */
+let handRaised=false;
+const handBtn=document.getElementById("handbtn");
+
+function updateHandBtn(){
+  if(MY_SEAT===null || !LIVE || liveEnded){ handBtn.style.display="none"; return; }
+  handBtn.style.display = currentAction ? "none" : "inline-flex";
+  handBtn.classList.toggle("raised", handRaised);
+  handBtn.setAttribute("aria-pressed", handRaised?"true":"false");
+  handBtn.textContent = handRaised ? "✋ You have the next word" : "✋ Raise hand";
+}
+
+handBtn.onclick=async()=>{
+  handRaised=!handRaised;
+  updateHandBtn();
+  try{
+    await fetch("/api/live/hand",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({raised:handRaised}), cache:"no-store"});
+  }catch(err){ /* next click retries */ }
+};
+
+async function pollAction(){
+  if(MY_SEAT===null) return;
+  try{
+    const r=await fetch("/api/live/action",{cache:"no-store"});
+    if(r.ok){
+      const a=await r.json();
+      currentAction = (a && a.id) ? a : null;
+    }
+  }catch(err){ /* keep polling */ }
+  renderActionPanel();
+  setTimeout(pollAction, 500);
+}
+
+let spyViewEnabled=false;
+
+function renderYouAre(){
+  const box=document.getElementById("youare");
+  if(MY_SEAT===null){ box.style.display="none"; return; }
+  const gs=EVENTS.find(e=>e.type==="game_start");
+  if(!gs || !gs.roles){ box.style.display="none"; return; }
+  const me=(gs.players||[]).find(p=>p.seat===MY_SEAT);
+  if(!me){ box.style.display="none"; return; }
+  const role=gs.roles[me.id];
+  box.style.display="block";
+  box.className=role;
+  if(role==="spy"){
+    const partners=(gs.players||[]).filter(p=>p.id!==me.id && gs.roles[p.id]==="spy")
+      .map(p=>esc(p.name)).join(", ");
+    box.innerHTML=`Your secret role: <b style="color:var(--bad)">SPY</b> — your fellow spy is <b>${partners}</b>. Role badges are shown: you know the whole table. Fail missions without getting caught.`;
+    if(!spyViewEnabled){
+      // A spy knows every role — show the badges. (Not full omniscient:
+      // private thoughts and face-down cards would be cheating.)
+      spyViewEnabled=true;
+      document.body.classList.remove("hideroles");
+      document.getElementById("roles").setAttribute("aria-pressed","false");
+    }
+  }else{
+    box.innerHTML=`Your secret role: <b style="color:var(--good)">RESISTANCE</b> — two players at this table are spies. Put clean teams on missions.`;
+  }
+}
+
 const _origRender = render;
-render = function(){ _origRender(); updateLiveBadge(); };
+render = function(){ _origRender(); updateLiveBadge(); renderYouAre(); };
 
 if(LIVE){
   document.getElementById("filename").textContent = LIVE.split("/").pop();
   EVENTS = []; playhead = 0;
   loadLobby();
   pollLive();
+  pollAction();
 }
 render();
 </script>

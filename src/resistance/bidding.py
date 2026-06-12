@@ -32,6 +32,7 @@ JUST_SPOKE_PENALTY = 0.42
 RECENT_SPOKE_PENALTY = 0.18
 NOISE_SPREAD = 0.12
 SPEAK_FLOOR = 0.32  # below this, the table is quiet — leader may call a vote
+RAISED_HAND_BID = 2.0  # a seat that asked for the floor outbids everyone
 PASS_PENALTY = 0.55  # winner took the floor but stayed silent
 FATIGUE_PER_UTTERANCE = 0.12  # each speech cools the table a little
 DEFAULT_MAX_TURNS = 10  # hard cap per discussion; fatigue usually ends it sooner

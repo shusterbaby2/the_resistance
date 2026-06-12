@@ -366,6 +366,80 @@ class HumanController(Controller):
                 return False
 
 
+class WebHumanController(Controller):
+    """Human seat driven from the browser instead of the terminal.
+
+    Each act() publishes one action request to the live session and blocks
+    until the web UI POSTs an answer. The browser form enforces team sizes;
+    anything malformed that slips through degrades to the same safe defaults
+    the engine already guards (invalid teams get engine-corrected, missing
+    votes approve, resistance always plays success)."""
+
+    def __init__(self, session):
+        self.session = session
+
+    def act(self, view: SeatView, action: Action) -> AgentOutput:
+        if action == Action.DISCUSS:
+            self.session.set_hand(False)  # they got the floor; lower the hand
+        response = self.session.request_action(self._request(view, action))
+        return self._to_output(view, action, response)
+
+    def _request(self, view: SeatView, action: Action) -> dict:
+        return {
+            "action": action.value,
+            "seat": view.seat,
+            "round": view.round_num,
+            "players": [{"seat": p.seat, "name": p.name} for p in view.players],
+            "teamSize": view.team_size,
+            "currentTeam": view.current_team,
+            "suggestion": view.suggestion_num,
+            "maxSuggestions": rules.MAX_SUGGESTIONS,
+            "attempt": view.attempt,
+            "isSpy": view.role == Role.SPY,
+        }
+
+    def _team(self, view: SeatView, response: dict) -> list[int] | None:
+        raw = response.get("team")
+        if not isinstance(raw, list):
+            return None
+        try:
+            team = sorted({int(s) for s in raw})
+        except (TypeError, ValueError):
+            return None
+        if len(team) != view.team_size or not all(
+                0 <= s < rules.N_PLAYERS for s in team):
+            return None
+        return team
+
+    def _to_output(self, view: SeatView, action: Action,
+                   response: dict) -> AgentOutput:
+        speech = str(response.get("speech") or "").strip()
+        if action == Action.DISCUSS:
+            return AgentOutput(speech=speech)
+        if action == Action.VOTE:
+            return AgentOutput(vote=bool(response.get("approve", True)))
+        if action == Action.MISSION:
+            if view.role == Role.SPY:
+                return AgentOutput(
+                    mission_success=bool(response.get("playSuccess", True)))
+            return AgentOutput(mission_success=True)
+        if action == Action.PROPOSE:
+            return AgentOutput(team=self._team(view, response), speech=speech)
+        if action == Action.RECONSIDER:
+            team = self._team(view, response)
+            if response.get("submit", True) is not False or team is None:
+                return AgentOutput(submit=True, speech=speech)
+            return AgentOutput(submit=False, team=team, speech=speech)
+        if action == Action.DEBRIEF:
+            return AgentOutput(
+                strategy=str(response.get("strategy") or "").strip(),
+                best_move=str(response.get("best_move") or "").strip(),
+                mistake=str(response.get("mistake") or "").strip(),
+                confusion=str(response.get("confusion") or "").strip(),
+            )
+        raise ValueError(action)
+
+
 # --------------------------------------------------------------- wiring
 
 def _load_dotenv() -> None:
@@ -490,12 +564,13 @@ def _log_path(prefix: str, seed: int) -> Path:
 
 
 def _run_game(
-    build_seats: Callable[[dict], list[SeatConfig]],
+    build_seats: Callable[..., list[SeatConfig]],
     args,
     human: bool,
 ) -> None:
     log = JsonlEventLog(_log_path(args.command, args.seed))
     server = None
+    session = None
     start_config: dict = {}
     if args.web:
         from .webserver import live_url, start_server
@@ -503,12 +578,15 @@ def _run_game(
         lobby = _build_lobby(args, human=human, human_name=args.name if human else "You")
         server, session = start_server(Path.cwd(), lobby=lobby)
         # Human players get the blind view — no spoilers; spectators get omniscient.
-        url = live_url(server, log.path, blind=human)
+        url = live_url(server, log.path, blind=human,
+                       seat=0 if human else None)
         webbrowser.open(url)
         print(f"Live web view: {url}")
         print("Configure players in the browser, then click Start Game.")
         start_config = session.wait_for_start()
-    seat_configs = build_seats(start_config)
+        if human:
+            print("You play in the browser — your prompts appear there.")
+    seat_configs = build_seats(start_config, session)
     renderer = ConsoleRenderer(human=human, reveal=args.reveal)
     pacer: PacedRenderer | None = None
     if args.fast:
@@ -552,7 +630,7 @@ def _seat_llm_options(config: dict, args) -> tuple[list[int], dict[int, str], di
 
 
 def cmd_play(args) -> None:
-    def build_seats(config: dict) -> list[SeatConfig]:
+    def build_seats(config: dict, session=None) -> list[SeatConfig]:
         preset_idxs, model_by_seat, effort_by_seat = _seat_llm_options(config, args)
         ai_seats = list(range(1, rules.N_PLAYERS))
         controllers = _make_llm_controllers(
@@ -563,7 +641,12 @@ def cmd_play(args) -> None:
             args,
         )
         ai_names = [PRESETS[preset_idxs[s]].name for s in ai_seats]
-        seats = [SeatConfig(name=args.name, controller=HumanController(), is_human=True)]
+        human_ctl: Controller = (WebHumanController(session) if session is not None
+                                 else HumanController())
+        seats = [SeatConfig(
+            name=args.name, controller=human_ctl, is_human=True,
+            wants_floor=session.hand_raised if session is not None else None,
+        )]
         seats += [SeatConfig(name=n, controller=controllers[s])
                   for s, n in zip(ai_seats, ai_names)]
         return seats
@@ -572,7 +655,7 @@ def cmd_play(args) -> None:
 
 
 def cmd_watch(args) -> None:
-    def build_seats(config: dict) -> list[SeatConfig]:
+    def build_seats(config: dict, session=None) -> list[SeatConfig]:
         preset_idxs, model_by_seat, effort_by_seat = _seat_llm_options(config, args)
         all_seats = list(range(rules.N_PLAYERS))
         controllers = _make_llm_controllers(

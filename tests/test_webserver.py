@@ -1,7 +1,25 @@
 import json
+import threading
+import time
 import urllib.request
 
 from resistance.webserver import LiveSession, live_url, start_server
+
+
+def _get(port, path):
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}") as r:
+        return json.loads(r.read().decode())
+
+
+def _post(port, path, payload):
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read().decode())
 
 
 def test_serves_files_uncached(tmp_path):
@@ -61,3 +79,53 @@ def test_live_session_wait_unblocks():
     session = LiveSession(lobby={})
     session.signal_start({"presets": [0, 1, 2, 3, 4]})
     assert session.wait_for_start() == {"presets": [0, 1, 2, 3, 4]}
+
+
+def test_hand_endpoint_sets_and_clears_session_flag(tmp_path):
+    server, session = start_server(tmp_path, lobby={})
+    try:
+        port = server.server_address[1]
+        assert _get(port, "/api/live/hand") == {"raised": False}
+        assert _post(port, "/api/live/hand", {"raised": True}) == \
+            {"ok": True, "raised": True}
+        assert session.hand_raised() is True
+        session.set_hand(False)  # the controller lowers it on the discuss slot
+        assert _get(port, "/api/live/hand") == {"raised": False}
+    finally:
+        server.shutdown()
+
+
+def test_action_channel_roundtrip(tmp_path):
+    server, session = start_server(tmp_path, lobby={})
+    try:
+        port = server.server_address[1]
+        assert _get(port, "/api/live/action") == {}  # nothing pending
+
+        result = {}
+
+        def controller():
+            result["resp"] = session.request_action({"action": "vote", "seat": 0})
+
+        thread = threading.Thread(target=controller)
+        thread.start()
+        pending = {}
+        for _ in range(200):  # wait for the request to publish
+            pending = _get(port, "/api/live/action")
+            if pending:
+                break
+            time.sleep(0.01)
+        assert pending["action"] == "vote"
+        assert pending["id"] == 1
+
+        # A stale/wrong id never unblocks the controller.
+        assert _post(port, "/api/live/action", {"id": 999, "approve": True}) == {"ok": False}
+        assert thread.is_alive()
+
+        assert _post(port, "/api/live/action",
+                     {"id": pending["id"], "approve": False}) == {"ok": True}
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert result["resp"]["approve"] is False
+        assert _get(port, "/api/live/action") == {}  # cleared after answering
+    finally:
+        server.shutdown()

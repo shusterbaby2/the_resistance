@@ -70,7 +70,9 @@ the third auto-submits.
 - `uv run resistance watch --offline` — all-AI scripted game, no API key
 - `uv run resistance watch --reveal` — all-Claude game with reasoning shown
 - `--web` on play/watch — live browser view (local server tails the .jsonl; play opens
-  Blind, watch opens omniscient; `turn_start` events drive the "thinking…" indicator)
+  Blind, watch opens omniscient; `turn_start` events drive the "thinking…" indicator).
+  On play, the human acts in the browser: `WebHumanController` publishes one pending
+  request at a time to `/api/live/action`; the page polls it and POSTs the answer
 - `--fast` on play/watch — disable reading-speed pacing of the terminal view; by default
   the engine runs ahead and the display trickles at reading speed (use --fast for smoke
   runs and benchmarks)

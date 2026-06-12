@@ -139,6 +139,33 @@ def test_discussion_ends_when_table_is_quiet():
     assert sum(c.discuss_calls for c in controllers) == 0
 
 
+def test_raised_hand_claims_the_floor_on_a_quiet_table():
+    quiet = Personality(
+        name="Mute", style="silent", talkativeness=1,
+        aggression=5, trustfulness=5, deceptiveness=5,
+    )
+    controllers = [CountingDiscussController(i) for i in range(5)]
+    hand = {"raised": True}
+
+    def wants_floor():
+        if hand["raised"]:
+            hand["raised"] = False  # one-shot, like the web controller
+            return True
+        return False
+
+    seats = [
+        SeatConfig(name=f"P{i}", controller=controllers[i], personality=quiet,
+                   wants_floor=wants_floor if i == 2 else None)
+        for i in range(5)
+    ]
+    engine = GameEngine(seats, seed=1, discussion_speak_floor=SPEAK_FLOOR)
+    engine._assign_roles()
+    engine.state.current_team = [3, 4]  # same quiet setup as the test above
+    engine._run_discussion()
+    assert controllers[2].discuss_calls == 1
+    assert sum(c.discuss_calls for c in controllers) == 1
+
+
 def test_table_wants_to_talk_responds_to_recent_speech():
     state = _minimal_state()
     tracker = DiscussionTracker(transcript_start=0)

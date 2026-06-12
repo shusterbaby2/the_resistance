@@ -29,6 +29,7 @@ from .agents.base import Action, AgentOutput, Controller
 from .beliefs import Beliefs
 from .bidding import (
     DEFAULT_MAX_TURNS,
+    RAISED_HAND_BID,
     SPEAK_FLOOR,
     DiscussionTracker,
     compute_bids,
@@ -51,6 +52,10 @@ class SeatConfig:
     controller: Controller
     is_human: bool = False
     personality: Personality | None = None
+    # Optional "raised hand" probe: when it returns True, this seat outbids
+    # the table for the next discussion slot. Mechanical, like every other
+    # bid modifier — no LLM is consulted to decide who speaks.
+    wants_floor: Callable[[], bool] | None = None
 
 
 class GameEngine:
@@ -287,6 +292,9 @@ class GameEngine:
             bids = compute_bids(
                 self.rng, self._personas, self.state, self.transcript, tracker,
             )
+            for seat, cfg in enumerate(self.seats):
+                if cfg.wants_floor is not None and cfg.wants_floor():
+                    bids[seat] = max(bids[seat], RAISED_HAND_BID)
             if not table_wants_to_talk(bids, self.discussion_speak_floor):
                 break
             winner, bid, _ = pick_speaker(
